@@ -475,8 +475,9 @@ DmtcpWorker::waitForSuspendMessage()
   JTRACE("waiting for SUSPEND message");
 
   DmtcpMessage msg;
+  void *extraData;
   do {
-    void *extraData = NULL;
+    extraData = NULL;
     msg.poison();
     CoordinatorAPI::recvMsgFromCoordinator(&msg, &extraData);
 
@@ -500,6 +501,7 @@ DmtcpWorker::waitForSuspendMessage()
     _exit(0);
   }
 
+
   JASSERT(msg.type == DMT_DO_SUSPEND) (msg.type);
 
   // Coordinator sends some computation information along with the SUSPEND
@@ -507,6 +509,14 @@ DmtcpWorker::waitForSuspendMessage()
   SharedData::updateGeneration(msg.compGroup.computationGeneration());
   JASSERT(SharedData::getCompId() == msg.compGroup.upid())
     (SharedData::getCompId()) (msg.compGroup);
+
+  JASSERT(extraData != NULL);
+
+  //get type of checkpoint from extra bytes
+  uint32_t ckpt_type = *((uint32_t *) extraData);
+  ProcessInfo::instance().setCkptType(ckpt_type);
+
+  JALLOC_HELPER_FREE(extraData);
 
   _exitAfterCkpt = msg.exitAfterCkpt;
 }

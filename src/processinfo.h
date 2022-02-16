@@ -31,6 +31,10 @@
 #define RESTORE_MEM_SIZE   5 * MB
 #define RESTORE_TOTAL_SIZE (RESTORE_STACK_SIZE + RESTORE_MEM_SIZE)
 
+#define CKPT_GLOBAL 0
+#define CKPT_LOCAL 1
+
+
 namespace dmtcp
 {
 class ProcessInfo
@@ -152,15 +156,17 @@ class ProcessInfo
     bool vdsoOffsetMismatch(uint64_t f1, uint64_t f2,
                             uint64_t f3, uint64_t f4);
 
-    string getCkptFilename() const { return _ckptFileName; }
+    string getCkptFilename() const { return (_ckptType == CKPT_GLOBAL) ? _ckptFileNameGlobal : _ckptFileNameLocal; }
 
-    string getCkptFilesSubDir() const { return _ckptFilesSubDir; }
+    string getCkptFilesSubDir() const { return (_ckptType == CKPT_GLOBAL) ? _ckptFilesSubDirGlobal : _ckptFilesSubDirLocal; }
 
-    string getCkptDir() const { return _ckptDir; }
+    string getCkptDir() const { return (_ckptType == CKPT_GLOBAL) ? _ckptDirGlobal : _ckptDirLocal; }
 
     void setCkptDir(const char *);
     void setCkptFilename(const char *);
     void updateCkptDirFileSubdir(string newCkptDir = "");
+    uint32_t getCkptType(void) const { return _ckptType; }
+    void setCkptType(int ckpt_type) { _ckptType = ckpt_type; }
 
   private:
     map<pid_t, UniquePid>_childTable;
@@ -196,9 +202,16 @@ class ProcessInfo
     string _launchCWD;
     string _ckptCWD;
 
-    string _ckptDir;
-    string _ckptFileName;
-    string _ckptFilesSubDir;
+    //used for determining which ckpt location to use
+    uint32_t _ckptType;
+
+    string _ckptDirGlobal;
+    string _ckptFileNameGlobal;
+    string _ckptFilesSubDirGlobal;
+
+    string _ckptDirLocal;
+    string _ckptFileNameLocal;
+    string _ckptFilesSubDirLocal;
 
     UniquePid _upid;
     UniquePid _uppid;

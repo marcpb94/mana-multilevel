@@ -80,7 +80,8 @@
 #define ENV_VAR_ORIG_LD_PRELOAD     "DMTCP_ORIG_LD_PRELOAD"
 #define ENV_VAR_HIJACK_LIBS         "DMTCP_HIJACK_LIBS"
 #define ENV_VAR_HIJACK_LIBS_M32     "DMTCP_HIJACK_LIBS_M32"
-#define ENV_VAR_CHECKPOINT_DIR      "DMTCP_CHECKPOINT_DIR"
+#define ENV_VAR_GLOBAL_CKPT_DIR     "DMTCP_CKPT_DIR_GLOBAL"
+#define ENV_VAR_LOCAL_CKPT_DIR      "DMTCP_CKPT_DIR_LOCAL"
 #define ENV_VAR_TMPDIR              "DMTCP_TMPDIR"
 #define ENV_VAR_CKPT_OPEN_FILES     "DMTCP_CKPT_OPEN_FILES"
 #define ENV_VAR_ALLOW_OVERWRITE_WITH_CKPTED_FILES \
@@ -134,7 +135,8 @@
   ENV_VAR_HIJACK_LIBS,                \
   ENV_VAR_HIJACK_LIBS_M32,            \
   ENV_VAR_PLUGIN,                     \
-  ENV_VAR_CHECKPOINT_DIR,             \
+  ENV_VAR_GLOBAL_CKPT_DIR,            \
+  ENV_VAR_LOCAL_CKPT_DIR,             \
   ENV_VAR_TMPDIR,                     \
   ENV_VAR_CKPT_OPEN_FILES,            \
   ENV_VAR_QUIET,                      \
@@ -176,3 +178,6 @@
   "Report bugs to: " PACKAGE_BUGREPORT "\n" \
   "DMTCP home page: <" PACKAGE_URL ">\n"
 #endif // ifndef CONSTANTS_H
+
+#define CKPT_GLOBAL 0
+#define CKPT_LOCAL 1

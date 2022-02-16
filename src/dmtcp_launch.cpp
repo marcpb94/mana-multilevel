@@ -318,8 +318,11 @@ processArgs(int *orig_argc,
     } else if (argc > 1 && s == "--port-file") {
       thePortFile = argv[1];
       shift; shift;
-    } else if (argc > 1 && (s == "-c" || s == "--ckptdir")) {
-      setenv(ENV_VAR_CHECKPOINT_DIR, argv[1], 1);
+    } else if (argc > 1 && (s == "-cg" || s == "--ckptdir-global")) {
+      setenv(ENV_VAR_GLOBAL_CKPT_DIR, argv[1], 1);
+      shift; shift;
+    } else if (argc > 1 && (s == "-cl" || s == "--ckptdir-local")) {
+      setenv(ENV_VAR_LOCAL_CKPT_DIR, argv[1], 1);
       shift; shift;
     } else if (argc > 1 && (s == "-t" || s == "--tmpdir")) {
       tmpdir_arg = argv[1];
@@ -520,7 +523,11 @@ main(int argc, char **argv)
   if (argc > 0) {
     JTRACE("dmtcp_launch starting new program:")(argv[0]);
   }
+  
+  JASSERT(getenv(ENV_VAR_GLOBAL_CKPT_DIR) != NULL).Text("Global checkpoint location needs to be defined.");
+  JASSERT(getenv(ENV_VAR_LOCAL_CKPT_DIR) != NULL).Text("Local checkpoint location needs to be defined.");
 
+/*
   // set up CHECKPOINT_DIR
   if (getenv(ENV_VAR_CHECKPOINT_DIR) == NULL) {
     const char *ckptDir = get_current_dir_name();
@@ -534,6 +541,7 @@ main(int argc, char **argv)
     setenv(ENV_VAR_CHECKPOINT_DIR, ckptDir, 0);
     JTRACE("setting " ENV_VAR_CHECKPOINT_DIR)(ckptDir);
   }
+*/
 
   if (checkpointOpenFiles) {
     setenv(ENV_VAR_CKPT_OPEN_FILES, "1", 0);

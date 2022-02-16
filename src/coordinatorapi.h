@@ -77,8 +77,8 @@ char *connectAndSendUserCommand(char c,
                                 int *isRunning = NULL,
                                 int *ckptInterval = NULL);
 
-void updateCoordCkptDir(const char *dir);
-string getCoordCkptDir(void);
+void updateCoordCkptDir(const char *dir, int ckpt_type = CKPT_LOCAL);
+string getCoordCkptDir(int ckpt_type = CKPT_LOCAL);
 
 void sendCkptFilename();
 

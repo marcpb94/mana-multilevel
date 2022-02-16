@@ -854,8 +854,9 @@ main(int argc, char **argv)
     noStrictChecking = true;
   }
 
-  if (getenv(ENV_VAR_CHECKPOINT_DIR)) {
-    ckptdir_arg = getenv(ENV_VAR_CHECKPOINT_DIR);
+  //TODO: decide between global or local
+  if (getenv(ENV_VAR_LOCAL_CKPT_DIR)) {
+    ckptdir_arg = getenv(ENV_VAR_LOCAL_CKPT_DIR);;
   }
 
   if (argc == 1) {
@@ -949,6 +950,10 @@ main(int argc, char **argv)
       break;
     }
   }
+
+  printf("ckpt-restart=%s\n", restartDir.c_str());
+  fflush(stdout);
+
 
   if ((getenv(ENV_VAR_NAME_PORT) == NULL ||
        getenv(ENV_VAR_NAME_PORT)[0]== '\0') &&
@@ -1051,6 +1056,8 @@ main(int argc, char **argv)
             image_zero.append("/");
         }
         image_zero.append("ckpt_rank_0/");
+	printf("ckpt-restart=%s\n", image_zero.c_str());
+        fflush(stdout);
         DIR *dir;
         struct dirent *entry;
         bool success = false;

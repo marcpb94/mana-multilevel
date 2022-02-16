@@ -309,7 +309,7 @@ connectAndSendUserCommand(char c,
 }
 
 string
-getCoordCkptDir(void)
+getCoordCkptDir(int ckpt_type)
 {
   // FIXME: Add a test for make-check.
   char buf[PATH_MAX] = { 0 };
@@ -317,13 +317,22 @@ getCoordCkptDir(void)
   if (noCoordinator()) {
     return "";
   }
-  DmtcpMessage msg(DMT_GET_CKPT_DIR);
+  
+  dmtcp::DmtcpMessageType msg_type = (ckpt_type == CKPT_GLOBAL) ? 
+					DMT_GET_GLOBAL_CKPT_DIR : 
+					DMT_GET_LOCAL_CKPT_DIR;
+  dmtcp::DmtcpMessageType msg_result = (ckpt_type == CKPT_GLOBAL) ? 
+					DMT_GET_GLOBAL_CKPT_DIR_RESULT : 
+					DMT_GET_LOCAL_CKPT_DIR_RESULT;
+
+
+  DmtcpMessage msg(msg_type);
   sendMsgToCoordinator(msg);
 
   char *extraData = NULL;
   recvMsgFromCoordinator(&msg, (void **)&extraData);
   msg.assertValid();
-  JASSERT(msg.type == DMT_GET_CKPT_DIR_RESULT) (msg.type);
+  JASSERT(msg.type == msg_result) (msg.type);
 
   JASSERT(msg.extraBytes > 0 && msg.extraBytes < PATH_MAX);
   strcpy(buf, extraData);
@@ -332,13 +341,16 @@ getCoordCkptDir(void)
 }
 
 void
-updateCoordCkptDir(const char *dir)
+updateCoordCkptDir(const char *dir, int ckpt_type)
 {
   if (noCoordinator()) {
     return;
   }
   JASSERT(dir != NULL);
-  DmtcpMessage msg(DMT_UPDATE_CKPT_DIR);
+  dmtcp::DmtcpMessageType msg_type = (ckpt_type == CKPT_GLOBAL) ? 
+						DMT_UPDATE_GLOBAL_CKPT_DIR : 
+						DMT_UPDATE_LOCAL_CKPT_DIR;
+  DmtcpMessage msg(msg_type);
   sendMsgToCoordinator(msg, dir, strlen(dir) + 1);
 }
 

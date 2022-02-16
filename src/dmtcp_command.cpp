@@ -69,6 +69,7 @@ main(int argc, char **argv)
 {
   string interval = "";
   string request = "h";
+  char ckpt_type = 0; 
 
   initializeJalib();
 
@@ -100,6 +101,12 @@ main(int argc, char **argv)
     } else if (s == "h" || s == "-h" || s == "--help" || s == "?") {
       fprintf(stderr, theUsage, "");
       return 1;
+    } else if (s == "--global"){
+      ckpt_type = 'd';
+      shift;
+    } else if (s == "--local"){
+      ckpt_type = 'e';
+      shift;
     } else { // else it's a request
       char *cmd = argv[0];
 
@@ -173,6 +180,15 @@ main(int argc, char **argv)
       CoordinatorAPI::connectAndSendUserCommand(*cmd, &coordCmdStatus);
     break;
   case 'c':
+    if (ckpt_type == 'd' || ckpt_type == 'e'){
+      int coordCmdStatus2 = CoordCmdStatus::NOERROR;
+      CoordinatorAPI::connectAndSendUserCommand(ckpt_type, &coordCmdStatus2);
+      if (coordCmdStatus2 != CoordCmdStatus::NOERROR) {
+        fprintf(stderr, "Error sending checkpoint type to coordinator.\n");
+        return 2;
+      }
+    }
+    //fall
   case 'k':
   case 'q':
     workerList =
