@@ -144,6 +144,7 @@ main(int argc, char **argv)
   }
 
   int coordCmdStatus = CoordCmdStatus::NOERROR;
+  int coordCmdStatus2 = CoordCmdStatus::NOERROR;
   int numPeers;
   int isRunning;
   int ckptInterval;
@@ -155,6 +156,13 @@ main(int argc, char **argv)
     return 1;
 
   case 'i':
+    if (ckpt_type == 'd' || ckpt_type == 'e'){
+      CoordinatorAPI::connectAndSendUserCommand(ckpt_type, &coordCmdStatus2);
+      if (coordCmdStatus2 != CoordCmdStatus::NOERROR) {
+        fprintf(stderr, "Error sending checkpoint type to coordinator.\n");
+        return 2;
+      }
+    }
     setenv(ENV_VAR_CKPT_INTR, interval.c_str(), 1);
     CoordinatorAPI::connectAndSendUserCommand(*cmd, &coordCmdStatus);
     printf("Interval changed to %s\n", interval.c_str());
@@ -181,7 +189,6 @@ main(int argc, char **argv)
     break;
   case 'c':
     if (ckpt_type == 'd' || ckpt_type == 'e'){
-      int coordCmdStatus2 = CoordCmdStatus::NOERROR;
       CoordinatorAPI::connectAndSendUserCommand(ckpt_type, &coordCmdStatus2);
       if (coordCmdStatus2 != CoordCmdStatus::NOERROR) {
         fprintf(stderr, "Error sending checkpoint type to coordinator.\n");
