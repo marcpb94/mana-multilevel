@@ -1,7 +1,7 @@
 Done: 
 	- Separated ckpt into 2, and coded basic functionality for both types
 	- Ability to specify type of checkpoint in mana_status/dmtcp_command in the same manual checkpoint request
+	- Added possiblity of choosing certain checkpoint intervals for both types of checkpoints
 
 TODO:
-	- Add possiblity of choosing certain checkpoint intervals (or hardcode at first) for both types of checkpoints
 	- Figure out a way for mana_restart to know which ckpt type was last/should use
