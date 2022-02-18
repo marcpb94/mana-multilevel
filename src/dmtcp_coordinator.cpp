@@ -603,7 +603,6 @@ DmtcpCoordinator::recordCkptFilename(CoordClient *client, const char *extraData)
     JNOTE("Checkpoint complete. Wrote restart script") (restartScriptPath);
 
     JTIMER_STOP(checkpoint);
-    recomputeCkptTimings();
 
     if (blockUntilDone) {
       DmtcpMessage blockUntilDoneReply(DMT_USER_CMD_RESULT);
@@ -1242,6 +1241,9 @@ DmtcpCoordinator::startCheckpoint()
   static bool sentIntentMsg = false;
   nextCkptBarrier = nextRestartBarrier = 0;
 
+  printf("Starting checkpoint of type %d\n", nextCkptType);
+  fflush(stdout);
+
   // When this gets called for the first time, we simply send the intent
   // msg and return. For the subsequent call to startCheckpoint(), which would
   // happen from processPreSuspendClientMsg(), we go ahead and do the
@@ -1366,6 +1368,8 @@ signalHandler(int signum)
     prog.handleUserCommand('q');
   } else if (signum == SIGALRM) {
     //set correct checkpoint type
+    printf("Alarm expired! Time for checkpoint of type %d\n", currentAlarmCkptType);
+    fflush(stdout);
     nextCkptType = currentAlarmCkptType;
     timerExpired = true;
     recomputeCkptTimings(currentAlarmTime);
@@ -1506,7 +1510,7 @@ recomputeCkptTimings(uint32_t alarm_time)
       if(globalCkptTimeLeft <= 0){
         globalCkptTimeLeft = theCheckpointIntervalGlobal;
       }
-      if (globalCkptTimeLeft <= 0){
+      if (localCkptTimeLeft <= 0){
         localCkptTimeLeft = theCheckpointIntervalLocal;
       }
   }
@@ -1519,7 +1523,9 @@ recomputeCkptTimings(uint32_t alarm_time)
     currentAlarmTime = localCkptTimeLeft;
     currentAlarmCkptType = CKPT_LOCAL;
   }
-
+  
+  printf("Setting alarm in %d seconds of ckpt type %d.\n", currentAlarmTime, currentAlarmCkptType);
+  fflush(stdout); 
   alarm(currentAlarmTime);
 }
 
