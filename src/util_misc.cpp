@@ -30,6 +30,7 @@
 #include "protectedfds.h"
 #include "syscallwrappers.h"
 #include "util.h"
+#include "util_config.h"
 
 using namespace dmtcp;
 
@@ -783,4 +784,88 @@ Util::allowGdbDebug(int currentDebugLevel)
       sleep(3);
     }
   }
+}
+
+ConfigInfo::ConfigInfo() {
+  globalCkptDir = "";
+  localCkptDir = "";
+  globalInterval = 0;
+  localInterval = 0;
+}
+
+void
+ConfigInfo::readConfigFromFile(std::string filename){
+  std::string line, option, value;
+  std::ifstream configFile(filename);
+  if(configFile.is_open()){
+    while (std::getline(configFile, line)){
+      while(line.length() > 0 && (line[0] == ' ' || line[0] == '\t')){
+        line.erase(0,1);
+      }
+      if(line.empty()) continue;
+      uint64_t index = line.find("=");
+      JASSERT(index != std::string::npos).Text("Invalid config file syntax.");
+      option = line.substr(0, index);
+      value = line.substr(index+1, line.length());
+
+      if (option == GLOBAL_CKPT_DIR_OPTION){
+        globalCkptDir = value;
+      }
+      else if (option == LOCAL_CKPT_DIR_OPTION){
+        localCkptDir = value;
+      }
+      else if (option == GLOBAL_CKPT_INT_OPTION){
+        try {
+          globalInterval = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing global checkpoint interval.");
+        }
+      }
+      else if (option == LOCAL_CKPT_INT_OPTION){
+        try {
+          localInterval = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing local checkpoint interval.");
+        }
+      }
+      else {
+        JASSERT(false)(option).Text("Invalid config option.");
+      } 
+    }     
+    configFile.close();
+  }
+  else {
+    JASSERT(false).Text("Could not open configuration file.");
+  }
+}        
+
+void
+ConfigInfo::writeRestartDir(std::string val){
+ std::ofstream file(".restartdir", std::fstream::out | std::fstream::trunc);
+
+ if(file.is_open()){
+    file.write(val.c_str(), val.length());
+    file.close();
+  }
+  else {
+    JASSERT(false).Text("Could not open .restartdir file.");
+  }
+}
+
+std::string
+ConfigInfo::readRestartDir(){
+  std::string ckptDir;
+  std::ifstream file(".restartdir", std::fstream::in);
+
+  if(file.is_open()){
+    std::getline(file, ckptDir);
+    file.close();
+  }
+  else {
+    JASSERT(false).Text("Could not open .restartdir file.");
+  }
+
+  return ckptDir;
 }

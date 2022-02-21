@@ -30,6 +30,7 @@
 #include "shareddata.h"
 #include "syscallwrappers.h"
 #include "util.h"
+#include "util_config.h"
 
 // Eventually, we may move this macro to config.h.in, but it doesn't currently
 // interfere with ordinary DMTCP.
@@ -323,6 +324,12 @@ processArgs(int *orig_argc,
       shift; shift;
     } else if (argc > 1 && (s == "-cl" || s == "--ckptdir-local")) {
       setenv(ENV_VAR_LOCAL_CKPT_DIR, argv[1], 1);
+      shift; shift;
+    } else if (argc > 1 && s == "--config") {
+      ConfigInfo conf = ConfigInfo();
+      conf.readConfigFromFile(std::string(argv[1]));
+      setenv(ENV_VAR_LOCAL_CKPT_DIR, conf.localCkptDir.c_str(), 1);
+      setenv(ENV_VAR_GLOBAL_CKPT_DIR, conf.globalCkptDir.c_str(), 1);
       shift; shift;
     } else if (argc > 1 && (s == "-t" || s == "--tmpdir")) {
       tmpdir_arg = argv[1];

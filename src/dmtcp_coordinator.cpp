@@ -89,6 +89,7 @@
 #include "restartscript.h"
 #include "syscallwrappers.h"
 #include "util.h"
+#include "util_config.h"
 #undef min
 #undef max
 
@@ -1807,6 +1808,14 @@ main(int argc, char **argv)
     } else if (argc > 1 && (s == "-cl" || s == "--ckptdir-local")) {
       setenv(ENV_VAR_LOCAL_CKPT_DIR, argv[1], 1);
       shift; shift;
+    } else if (argc > 1 && s == "--config") {
+      ConfigInfo conf = ConfigInfo();
+      conf.readConfigFromFile(std::string(argv[1]));
+      setenv(ENV_VAR_LOCAL_CKPT_DIR, conf.localCkptDir.c_str(), 1);
+      setenv(ENV_VAR_GLOBAL_CKPT_DIR, conf.globalCkptDir.c_str(), 1);
+      theCheckpointIntervalLocal = conf.localInterval;
+      theCheckpointIntervalGlobal = conf.globalInterval;
+      shift; shift;
     } else if (argc > 1 && (s == "-t" || s == "--tmpdir")) {
       tmpdir_arg = argv[1];
       shift; shift;
@@ -1846,14 +1855,6 @@ main(int argc, char **argv)
   ckptDirGlobal = getenv(ENV_VAR_GLOBAL_CKPT_DIR);
   ckptDirLocal = getenv(ENV_VAR_LOCAL_CKPT_DIR);
   ckptType = CKPT_GLOBAL;
-
-/*
-  if (getenv(ENV_VAR_CHECKPOINT_DIR) != NULL) {
-    ckptDir = getenv(ENV_VAR_CHECKPOINT_DIR);
-  } else {
-    ckptDir = get_current_dir_name();
-  }
-*/
 
   /*Test if the listener socket is already open*/
   if (fcntl(PROTECTED_COORD_FD, F_GETFD) != -1) {
