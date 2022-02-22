@@ -864,7 +864,8 @@ ConfigInfo::readRestartDir(){
     file.close();
   }
   else {
-    JASSERT(false).Text("Could not open .restartdir file.");
+    //return empty string if file does not exist
+    return "";
   }
 
   return ckptDir;

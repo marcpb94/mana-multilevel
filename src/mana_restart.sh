@@ -64,10 +64,6 @@ elif [ "$NERSC_HOST" = "gerty" ]; then
   SITE=nersc
 fi
 
-if [ "$restartdir" == "" ]; then
-  options="$options --restartdir ./"
-fi
-
 if [ "$SITE" = "nersc" ]; then
   if [ -z "$SLURM_JOB_ID" ]; then
     echo "SLURM_JOB_ID env variable not set; No salloc/sbatch jobs running?"

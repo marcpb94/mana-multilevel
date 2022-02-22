@@ -221,7 +221,7 @@ static uint32_t localCkptTimeLeft = 0;
 static uint32_t currentAlarmCkptType = CKPT_GLOBAL;
 static uint32_t nextCkptType = CKPT_GLOBAL;
 static uint32_t currentAlarmTime = 0;
-
+static uint32_t ckptTypeInProgress = CKPT_GLOBAL;
 
 
 #define MAX_EVENTS 10000
@@ -626,6 +626,15 @@ DmtcpCoordinator::recordCkptFilename(CoordClient *client, const char *extraData)
     }
     _numRestartFilenames = 0;
     _numCkptWorkers = 0;
+
+
+    //write information about last ckpt location on .restartdir for recovery purposes
+    if (ckptTypeInProgress == CKPT_GLOBAL) {
+      ConfigInfo::writeRestartDir(std::string(ckptDirGlobal.c_str()));
+    }
+    else {
+      ConfigInfo::writeRestartDir(std::string(ckptDirLocal.c_str()));
+    }
 
     // All the workers have checkpointed so now it is safe to reset this flag.
     workersRunningAndSuspendMsgSent = false;
@@ -1278,9 +1287,12 @@ DmtcpCoordinator::startCheckpoint()
     JNOTE("starting checkpoint; incrementing generation; suspending all nodes")
       (s.numPeers) (compId.computationGeneration());
 
+    //set ckpt type in progress
+    ckptTypeInProgress = nextCkptType;
+
     // Pass number of connected peers to all clients
     // Also, pass checkpoint type
-    broadcastMessage(DMT_DO_SUSPEND, sizeof(uint32_t), &nextCkptType);
+    broadcastMessage(DMT_DO_SUSPEND, sizeof(uint32_t), &ckptTypeInProgress);
 
     // Suspend Message has been sent but the workers are still in running
     // state.  If the coordinator receives another checkpoint request from user

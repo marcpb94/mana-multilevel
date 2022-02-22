@@ -40,6 +40,7 @@
 #include "shareddata.h"
 #include "uniquepid.h"
 #include "util.h"
+#include "util_config.h"
 
 #define BINARY_NAME         "dmtcp_restart"
 #define MTCP_RESTART_BINARY "mtcp_restart"
@@ -925,8 +926,8 @@ main(int argc, char **argv)
       tmpdir_arg = argv[1];
       shift; shift;
     } else if (argc > 1 && (s == "-r" || s == "--restartdir")) {
-        restartDir = string(argv[1]);
-        shift; shift;
+      restartDir = string(argv[1]);
+      shift; shift;
     } else if (argc > 1 && (s == "--gdb")) {
       requestedDebugLevel = atoi(argv[1]);
       shift; shift;
@@ -951,8 +952,19 @@ main(int argc, char **argv)
     }
   }
 
-  printf("ckpt-restart=%s\n", restartDir.c_str());
-  fflush(stdout);
+  //if restartDir not specified, check .restartdir file
+  if (restartDir.empty()){
+    std::string rdir = ConfigInfo::readRestartDir();
+    if(!rdir.empty()){
+      restartDir = string(rdir.c_str());
+      printf("Found .restartdir with ckpt location %s\n", restartDir.c_str());
+      fflush(stdout);
+    }
+    else {
+      //else default to current directory
+      restartDir = "./";
+    }
+  }
 
 
   if ((getenv(ENV_VAR_NAME_PORT) == NULL ||
