@@ -52,3 +52,20 @@ For details of installing and using MANA, please see:
 - [the MANA README file](https://github.com/mpickpt/mana/blob/master/contrib/mpi-proxy-split/README)
 - [the MANA INSTALL file](https://github.com/mpickpt/mana/blob/master/contrib/mpi-proxy-split/INSTALL)
 - [the MANA 'man' page](https://github.com/mpickpt/mana/blob/master/manpages/mana.1) (or 'nroff -man mana.1')
+
+---
+
+## MANA multi-level checkpoint extension
+
+This work extends the Mana library with several levels of checkpointing.
+
+Current progress implements two types of checkpoints: local storage checkpoint and global storage checkpoint. We currently support checkpoint intervals for both local and global checkpoints concurrently, prioritizing global checkpoints in the event of frequency collision. We also implement a method for automatically deciding from which type of checkpoint the application should recover.  We intend to implement other types of checkpoint that make use of local storage to perform techniques to improve the reliability without the need to write to global storage.
+
+We make use of a configuration file in order to make the customization of Mana options easier. We currently support the following options:
+
+- Local checkpoint location
+- Global checkpoint location
+- Local checkpoint interval
+- Global checkpoint interval
+
+An example of the configuration file is found [here](templates/mana.conf).
