@@ -1,7 +1,2 @@
-Done: 
-	- Separated ckpt into 2, and coded basic functionality for both types
-	- Ability to specify type of checkpoint in mana_status/dmtcp_command in the same manual checkpoint request
-	- Added possiblity of choosing certain checkpoint intervals for both types of checkpoints
-
 TODO:
-	- Figure out a way for mana_restart to know which ckpt type was last/should use
+	- Add partner copy checkpoint level
