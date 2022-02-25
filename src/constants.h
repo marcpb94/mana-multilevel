@@ -179,5 +179,6 @@
   "DMTCP home page: <" PACKAGE_URL ">\n"
 #endif // ifndef CONSTANTS_H
 
-#define CKPT_GLOBAL 0
-#define CKPT_LOCAL 1
+#define CKPT_LOCAL 0
+#define CKPT_PARTNER 1
+#define CKPT_GLOBAL 2

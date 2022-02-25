@@ -46,9 +46,12 @@ enum DmtcpMessageType {
 
   DMT_GET_GLOBAL_CKPT_DIR,
   DMT_GET_GLOBAL_CKPT_DIR_RESULT,
+  DMT_GET_PARTNER_CKPT_DIR,
+  DMT_GET_PARTNER_CKPT_DIR_RESULT,
   DMT_GET_LOCAL_CKPT_DIR,
   DMT_GET_LOCAL_CKPT_DIR_RESULT,
   DMT_UPDATE_GLOBAL_CKPT_DIR,
+  DMT_UPDATE_PARTNER_CKPT_DIR,
   DMT_UPDATE_LOCAL_CKPT_DIR,
   DMT_CKPT_FILENAME,         // a slave sending it's checkpoint filename to
                              // coordinator

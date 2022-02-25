@@ -300,19 +300,16 @@ ProcessInfo::init()
   mprotect((char *)_restoreBufAddr - pagesize, pagesize, PROT_EXEC);
   JASSERT(_restoreBufLen % pagesize == 0) (_restoreBufLen) (pagesize);
   mprotect((char *)_restoreBufAddr + _restoreBufLen, pagesize, PROT_EXEC);
-  
-  if (_ckptDirGlobal.empty()) {
-    _ckptType = CKPT_GLOBAL;
-    updateCkptDirFileSubdir();
+ 
+  int i, tmp_type = _ckptType;
+  for(i = 0; i <= CKPT_GLOBAL; i++){
+    if (_ckptDir[CKPT_GLOBAL].empty()) {
+      _ckptType = i;
+      updateCkptDirFileSubdir();
+    }
   }
-
-  if (_ckptDirLocal.empty()){
-    _ckptType = CKPT_LOCAL;
-    updateCkptDirFileSubdir();
-  }
-
-  //default ckpt location
-  _ckptType = CKPT_GLOBAL;
+ 
+  _ckptType = tmp_type;
 }
 
 void
@@ -456,7 +453,7 @@ ProcessInfo::updateCkptDirFileSubdir(string newCkptDir)
 
   string ckptDir, ckptFileName, ckptFilesSubDir;
 
-  ckptDir = (_ckptType == CKPT_GLOBAL) ? _ckptDirGlobal : _ckptDirLocal;
+  ckptDir = _ckptDir[_ckptType];
 
   if (newCkptDir != "") {
     ckptDir = newCkptDir;
@@ -467,9 +464,13 @@ ProcessInfo::updateCkptDirFileSubdir(string newCkptDir)
     const char *dir = getenv(ckpt_env);
     printf("dir: %s\n", dir);
     if (dir == NULL) {
-      dir = ".";
+      JASSERT(false).Text("Checkpoint env var not defined.");
     }
     ckptDir = dir;
+    //add additional prefix if partner copy
+    if (_ckptType == CKPT_PARTNER) {
+      ckptDir = ckptDir + "/partner/";
+    }
   }
 
   ostringstream o;
@@ -483,17 +484,9 @@ ProcessInfo::updateCkptDirFileSubdir(string newCkptDir)
 
   printf("%s\n%s\n", ckptFileName.c_str(), ckptFilesSubDir.c_str());
 
-  if (_ckptType == CKPT_GLOBAL){
-    _ckptDirGlobal = ckptDir;
-    _ckptFileNameGlobal = ckptFileName;
-    _ckptFilesSubDirGlobal = ckptFilesSubDir;
-  }
-  else {
-    _ckptDirLocal = ckptDir;
-    _ckptFileNameLocal = ckptFileName;
-    _ckptFilesSubDirLocal = ckptFilesSubDir;
-  }
- 
+  _ckptDir[_ckptType] = ckptDir;
+  _ckptFileName[_ckptType] = ckptFileName;
+  _ckptFilesSubDir[_ckptType] = ckptFilesSubDir;
 }
 
 void
@@ -503,7 +496,13 @@ ProcessInfo::postExec()
   _procSelfExe = jalib::Filesystem::ResolveSymlink("/proc/self/exe");
   _upid = UniquePid::ThisProcess();
   _uppid = UniquePid::ParentProcess();
-  updateCkptDirFileSubdir();
+  int i, tmp_type = _ckptType;
+  for (i = 0; i <= CKPT_GLOBAL; i++){
+    _ckptType = i;
+    updateCkptDirFileSubdir();
+  }
+  //set current ckpt type
+  _ckptType = tmp_type;
 }
 
 void
@@ -517,11 +516,15 @@ ProcessInfo::resetOnFork()
   _isRootOfProcessTree = false;
   _childTable.clear();
   _pthreadJoinId.clear();
-  _ckptFileNameGlobal.clear();
-  _ckptFileNameLocal.clear();
-  _ckptFilesSubDirGlobal.clear();
-  _ckptFilesSubDirLocal.clear();
-  updateCkptDirFileSubdir();
+  int i, tmp_type = _ckptType;
+  for (i = 0; i <= CKPT_GLOBAL; i++){
+    _ckptFileName[i].clear();
+    _ckptFilesSubDir[i].clear();
+    _ckptType = i;
+    updateCkptDirFileSubdir();
+  }
+  //set current ckpt type
+  _ckptType = tmp_type;
 }
 
 void
@@ -688,6 +691,22 @@ ProcessInfo::endPthreadJoin(pthread_t thread)
   _do_unlock_tbl();
 }
 
+
+string
+ProcessInfo::getCkptFilename(){
+  return _ckptFileName[_ckptType];
+}
+
+string
+ProcessInfo::getCkptFilesSubDir(){
+  return _ckptFilesSubDir[_ckptType];
+}
+
+string
+ProcessInfo::getCkptDir(){
+  return _ckptDir[_ckptType];
+}
+
 void
 ProcessInfo::setCkptFilename(const char *filename)
 {
@@ -697,6 +716,7 @@ ProcessInfo::setCkptFilename(const char *filename)
     ckptDir = jalib::Filesystem::DirName(filename);
     ckptFileName = filename;
   } else {
+    ckptDir = _ckptDir[_ckptType];
     ckptFileName = ckptDir + "/" + filename;
   }
 
@@ -708,38 +728,19 @@ ProcessInfo::setCkptFilename(const char *filename)
     ckptFilesSubDir = ckptFileName + CKPT_FILES_SUBDIR_SUFFIX;
   }
 
-  if (_ckptType == CKPT_GLOBAL){
-    _ckptDirGlobal = ckptDir;
-    _ckptFileNameGlobal = ckptFileName;
-    _ckptFilesSubDirGlobal = ckptFilesSubDir;
-  }
-  else {
-    _ckptDirLocal = ckptDir;
-    _ckptFileNameLocal = ckptFileName;
-    _ckptFilesSubDirLocal = ckptFilesSubDir;
-  }
+  _ckptDir[_ckptType] = ckptDir;
+  _ckptFileName[_ckptType] = ckptFileName;
+  _ckptFilesSubDir[_ckptType] = ckptFilesSubDir;
 }
 
 void
 ProcessInfo::setCkptDir(const char *dir)
 {
   JASSERT(dir != NULL);
-  if (_ckptType == CKPT_GLOBAL){
-    _ckptDirGlobal = dir;
-    _ckptFileNameGlobal = _ckptDirGlobal + "/" + jalib::Filesystem::BaseName(_ckptFileNameGlobal);
-    _ckptFilesSubDirGlobal = _ckptDirGlobal + "/" + jalib::Filesystem::BaseName(
-        _ckptFilesSubDirGlobal);
-
-    JTRACE("setting ckptdir") (_ckptDirGlobal) (_ckptFilesSubDirGlobal);
-  }
-  else {
-    _ckptDirLocal = dir;
-    _ckptFileNameLocal = _ckptDirLocal + "/" + jalib::Filesystem::BaseName(_ckptFileNameLocal);
-    _ckptFilesSubDirLocal = _ckptDirLocal + "/" + jalib::Filesystem::BaseName(
-        _ckptFilesSubDirLocal);
-
-    JTRACE("setting ckptdir") (_ckptDirLocal) (_ckptFilesSubDirLocal);
-  }
+  _ckptDir[_ckptType] = dir;
+  _ckptFileName[_ckptType] = _ckptDir[_ckptType] + "/" + jalib::Filesystem::BaseName(_ckptFileName[_ckptType]);
+  _ckptFilesSubDir[_ckptType] = _ckptDir[_ckptType] + "/" + jalib::Filesystem::BaseName(_ckptFilesSubDir[_ckptType]);
+  JTRACE("setting ckptdir") (_ckptDir[_ckptType]) (_ckptFilesSubDir[_ckptType]);
 
   // JASSERT(access(_ckptDir.c_str(), X_OK|W_OK) == 0) (_ckptDir)
   // .Text("Missing execute- or write-access to checkpoint dir.");
@@ -841,8 +842,10 @@ ProcessInfo::serialize(jalib::JBinarySerializer &o)
   o & _compGroup & _numPeers & _noCoordinator & _argvSize & _envSize;
   o & _restoreBufAddr & _savedHeapStart & _savedBrk;
   o & _vdsoStart & _vdsoEnd & _vvarStart & _vvarEnd & _endOfStack;
-  o & _ckptDirGlobal & _ckptFileNameGlobal & _ckptFilesSubDirGlobal;
-  o & _ckptDirLocal & _ckptFileNameLocal & _ckptFilesSubDirLocal;
+  int i;
+  for (i = 0; i <= CKPT_GLOBAL; i++){
+    o & _ckptDir[_ckptType] & _ckptFileName[_ckptType] & _ckptFilesSubDir[_ckptType];
+  }
 
   //printf("Testing serializer...\n");
 

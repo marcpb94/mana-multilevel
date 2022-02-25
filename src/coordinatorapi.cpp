@@ -317,14 +317,25 @@ getCoordCkptDir(int ckpt_type)
   if (noCoordinator()) {
     return "";
   }
-  
-  dmtcp::DmtcpMessageType msg_type = (ckpt_type == CKPT_GLOBAL) ? 
-					DMT_GET_GLOBAL_CKPT_DIR : 
-					DMT_GET_LOCAL_CKPT_DIR;
-  dmtcp::DmtcpMessageType msg_result = (ckpt_type == CKPT_GLOBAL) ? 
-					DMT_GET_GLOBAL_CKPT_DIR_RESULT : 
-					DMT_GET_LOCAL_CKPT_DIR_RESULT;
+ 
 
+  dmtcp::DmtcpMessageType msg_type, msg_result;
+  switch (ckpt_type){
+    case CKPT_LOCAL:
+      msg_type = DMT_GET_LOCAL_CKPT_DIR;
+      msg_result = DMT_GET_LOCAL_CKPT_DIR_RESULT;
+      break;
+    case CKPT_PARTNER:
+      msg_type = DMT_GET_PARTNER_CKPT_DIR;
+      msg_result = DMT_GET_PARTNER_CKPT_DIR_RESULT;
+      break;
+    case CKPT_GLOBAL:
+      msg_type = DMT_GET_GLOBAL_CKPT_DIR;
+      msg_result = DMT_GET_GLOBAL_CKPT_DIR_RESULT;
+      break;
+    default:
+      JASSERT(false).Text("Unknown checkpoint type.");
+  }
 
   DmtcpMessage msg(msg_type);
   sendMsgToCoordinator(msg);
@@ -347,9 +358,22 @@ updateCoordCkptDir(const char *dir, int ckpt_type)
     return;
   }
   JASSERT(dir != NULL);
-  dmtcp::DmtcpMessageType msg_type = (ckpt_type == CKPT_GLOBAL) ? 
-						DMT_UPDATE_GLOBAL_CKPT_DIR : 
-						DMT_UPDATE_LOCAL_CKPT_DIR;
+  
+  dmtcp::DmtcpMessageType msg_type;
+  switch (ckpt_type){
+    case CKPT_LOCAL:
+      msg_type = DMT_UPDATE_LOCAL_CKPT_DIR;
+      break;
+    case CKPT_PARTNER:
+      msg_type = DMT_UPDATE_PARTNER_CKPT_DIR;
+      break;
+    case CKPT_GLOBAL:
+      msg_type = DMT_UPDATE_GLOBAL_CKPT_DIR;
+      break;
+    default:
+      JASSERT(false).Text("Unknown checkpoint type.");
+  } 
+
   DmtcpMessage msg(msg_type);
   sendMsgToCoordinator(msg, dir, strlen(dir) + 1);
 }

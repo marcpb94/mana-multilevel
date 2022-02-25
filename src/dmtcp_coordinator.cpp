@@ -186,8 +186,7 @@ static bool uniqueCkptFilenames = false;
  * then both theCheckpointInterval and theDefaultCheckpointInterval are set.
  * A value of '0' means:  never checkpoint (manual checkpoint only).
  */
-static uint32_t theCheckpointIntervalGlobal = 0; /* Current checkpoint interval */
-static uint32_t theCheckpointIntervalLocal = 0;
+static uint32_t theCheckpointInterval[CKPT_GLOBAL+1];
 static uint32_t theDefaultCheckpointInterval = 0; /* Reset to this on new comp.
                                                      */
 static bool timerExpired = false;
@@ -212,16 +211,15 @@ static string coordHostname;
 static struct in_addr localhostIPAddr;
 
 static string tmpDir;
-static string ckptDirGlobal, ckptDirLocal;
+static string ckptDir[CKPT_GLOBAL+1];
 static uint32_t ckptType;
 
 //vars to handle interval for two checkpoint types
-static uint32_t globalCkptTimeLeft = 0;
-static uint32_t localCkptTimeLeft = 0;
-static uint32_t currentAlarmCkptType = CKPT_GLOBAL;
-static uint32_t nextCkptType = CKPT_GLOBAL;
+static uint32_t ckptTimeLeft[CKPT_GLOBAL+1];
+static uint32_t currentAlarmCkptType = CKPT_LOCAL;
+static uint32_t nextCkptType = CKPT_LOCAL;
 static uint32_t currentAlarmTime = 0;
-static uint32_t ckptTypeInProgress = CKPT_GLOBAL;
+static uint32_t ckptTypeInProgress = CKPT_LOCAL;
 
 
 #define MAX_EVENTS 10000
@@ -327,7 +325,7 @@ DmtcpCoordinator::handleUserCommand(char cmd, DmtcpMessage *reply /*= NULL*/)
     break;
   case 'i': case 'I':
     JTRACE("setting checkpoint interval...");
-    intvl = (ckptType == CKPT_GLOBAL) ? theCheckpointIntervalGlobal : theCheckpointIntervalLocal;
+    intvl = theCheckpointInterval[ckptType];
     updateCheckpointInterval(intvl);
     break;
   case 'l': case 'L':
@@ -390,8 +388,8 @@ DmtcpCoordinator::handleUserCommand(char cmd, DmtcpMessage *reply /*= NULL*/)
     if (reply != NULL) {
       reply->numPeers = s.numPeers;
       reply->isRunning = running;
-      //TODO: cannot send both intervals in one var... should be fine
-      reply->theCheckpointInterval = theCheckpointIntervalGlobal;
+      //FIXME: cannot send both intervals in one var... should be fine
+      reply->theCheckpointInterval = theCheckpointInterval[CKPT_LOCAL];
     } else {
       printStatus(s.numPeers, running);
     }
@@ -465,10 +463,14 @@ DmtcpCoordinator::printStatus(size_t numPeers, bool isRunning)
 
     // << "Exit after checkpoint (first time only): " << exitAfterCkptOnce
     // << std::endl
-    << "Computation Id: " << compId << std::endl
-    << "Global Checkpoint Dir: " << ckptDirGlobal << std::endl
-    << "Local Checkpoint Dir: " << ckptDirLocal << std::endl
-    << "NUM_PEERS=" << numPeers << std::endl
+    << "Computation Id: " << compId << std::endl;
+
+  int i;
+  for (i = 0; i <= CKPT_GLOBAL; i++){
+    o << "Checkpoint Dir type " << i  << ": " << ckptDir[i] << std::endl;
+  } 
+
+  o << "NUM_PEERS=" << numPeers << std::endl
     << "RUNNING=" << (isRunning ? "yes" : "no") << std::endl;
 
   printf("%s", o.str().c_str());
@@ -591,7 +593,7 @@ DmtcpCoordinator::recordCkptFilename(CoordClient *client, const char *extraData)
 
   if (_numRestartFilenames == _numCkptWorkers) {
     const string restartScriptPath =
-      RestartScript::writeScript(ckptDirLocal,
+      RestartScript::writeScript(ckptDir[CKPT_LOCAL],
                                  uniqueCkptFilenames,
                                  ckptTimeStamp,
                                  theCheckpointIntervalGlobal, //FIXME
@@ -627,14 +629,8 @@ DmtcpCoordinator::recordCkptFilename(CoordClient *client, const char *extraData)
     _numRestartFilenames = 0;
     _numCkptWorkers = 0;
 
-
     //write information about last ckpt location on .restartdir for recovery purposes
-    if (ckptTypeInProgress == CKPT_GLOBAL) {
-      ConfigInfo::writeRestartDir(std::string(ckptDirGlobal.c_str()));
-    }
-    else {
-      ConfigInfo::writeRestartDir(std::string(ckptDirLocal.c_str()));
-    }
+    ConfigInfo::writeRestartDir(std::string(ckptDir[ckptTypeInProgress].c_str()));
 
     // All the workers have checkpointed so now it is safe to reset this flag.
     workersRunningAndSuspendMsgSent = false;
@@ -724,26 +720,34 @@ DmtcpCoordinator::onData(CoordClient *client)
   case DMT_GET_GLOBAL_CKPT_DIR:
   {
     DmtcpMessage reply(DMT_GET_GLOBAL_CKPT_DIR_RESULT);
-    reply.extraBytes = ckptDirGlobal.length() + 1;
+    reply.extraBytes = ckptDir[CKPT_GLOBAL].length() + 1;
     client->sock() << reply;
-    client->sock().writeAll(ckptDirGlobal.c_str(), reply.extraBytes);
+    client->sock().writeAll(ckptDir[CKPT_GLOBAL].c_str(), reply.extraBytes);
     break;
   }
   case DMT_GET_LOCAL_CKPT_DIR:
   {
     DmtcpMessage reply(DMT_GET_LOCAL_CKPT_DIR_RESULT);
-    reply.extraBytes = ckptDirLocal.length() + 1;
+    reply.extraBytes = ckptDir[CKPT_LOCAL].length() + 1;
     client->sock() << reply;
-    client->sock().writeAll(ckptDirLocal.c_str(), reply.extraBytes);
+    client->sock().writeAll(ckptDir[CKPT_LOCAL].c_str(), reply.extraBytes);
+    break;
+  }
+  case DMT_GET_PARTNER_CKPT_DIR:
+  {
+    DmtcpMessage reply(DMT_GET_PARTNER_CKPT_DIR_RESULT);
+    reply.extraBytes = ckptDir[CKPT_PARTNER].length() + 1;
+    client->sock() << reply;
+    client->sock().writeAll(ckptDir[CKPT_PARTNER].c_str(), reply.extraBytes);
     break;
   }
   case DMT_UPDATE_GLOBAL_CKPT_DIR:
   {
     JASSERT(extraData != 0)
     .Text("extra data expected with DMT_UPDATE_GLOBAL_CKPT_DIR message");
-    if (strcmp(ckptDirGlobal.c_str(), extraData) != 0) {
-      ckptDirGlobal = extraData;
-      JNOTE("Updated ckptDirGlobal") (ckptDirGlobal);
+    if (strcmp(ckptDir[CKPT_GLOBAL].c_str(), extraData) != 0) {
+      ckptDir[CKPT_GLOBAL] = extraData;
+      JNOTE("Updated ckptDirGlobal") (ckptDir[CKPT_GLOBAL]);
     }
     break;
   }
@@ -751,9 +755,19 @@ DmtcpCoordinator::onData(CoordClient *client)
   {
     JASSERT(extraData != 0)
     .Text("extra data expected with DMT_UPDATE_LOCAL_CKPT_DIR message");
-    if (strcmp(ckptDirLocal.c_str(), extraData) != 0) {
-      ckptDirLocal = extraData;
-      JNOTE("Updated ckptDirLocal") (ckptDirLocal);
+    if (strcmp(ckptDir[CKPT_LOCAL].c_str(), extraData) != 0) {
+      ckptDir[CKPT_LOCAL] = extraData;
+      JNOTE("Updated ckptDirLocal") (ckptDir[CKPT_LOCAL]);
+    }
+    break;
+  }
+  case DMT_UPDATE_PARTNER_CKPT_DIR:
+  {
+    JASSERT(extraData != 0)
+    .Text("extra data expected with DMT_UPDATE_PARTNER_CKPT_DIR message");
+    if (strcmp(ckptDir[CKPT_PARTNER].c_str(), extraData) != 0) {
+      ckptDir[CKPT_PARTNER] = extraData;
+      JNOTE("Updated ckptDirLocal") (ckptDir[CKPT_PARTNER]);
     }
     break;
   }
@@ -1547,23 +1561,16 @@ DmtcpCoordinator::updateCheckpointInterval(uint32_t interval)
 {
   static bool firstClient = true;
 
-  uint32_t ckpt_interval = (ckptType == CKPT_GLOBAL) ? theCheckpointIntervalGlobal : theCheckpointIntervalLocal;
+  uint32_t ckpt_interval = theCheckpointInterval[ckptType];
 
   if ((interval != DMTCPMESSAGE_SAME_CKPT_INTERVAL &&
        interval != ckpt_interval) ||
       firstClient) {
     int oldInterval = ckpt_interval;
     if (interval != DMTCPMESSAGE_SAME_CKPT_INTERVAL) {
-      if(ckptType == CKPT_GLOBAL){
-         theCheckpointIntervalGlobal = interval;
-         JNOTE("CheckpointIntervalGlobal updated (for this computation only)")
-         (oldInterval) (theCheckpointIntervalGlobal);
-      }
-      else {
-         theCheckpointIntervalLocal = interval;
-         JNOTE("CheckpointIntervalLocal updated (for this computation only)")
-         (oldInterval) (theCheckpointIntervalLocal);
-      }
+      theCheckpointInterval[ckptType] = interval;
+      JNOTE("CheckpointInterval updated (for this computation only)")
+         (oldInterval) (theCheckpointInterval[ckptType]) (cktType);
     }
 
     firstClient = false;
@@ -1767,6 +1774,13 @@ main(int argc, char **argv)
     logFilename = getenv(ENV_VAR_COORD_LOGFILE);
   }
 
+  //initialize intervals
+  int i;
+  for (i = 0; i <= CKPT_GLOBAL; i++){
+    theCheckpointInterval[i] = theDefaultCheckpointInterval;
+    ckptTimeLeft[i] = 0;
+  }
+
   shift;
   while (argc > 0) {
     string s = argv[0];
@@ -1864,9 +1878,12 @@ main(int argc, char **argv)
   JASSERT(getenv(ENV_VAR_GLOBAL_CKPT_DIR) != NULL).Text("Global checkpoint location needs to be defined.");
   JASSERT(getenv(ENV_VAR_LOCAL_CKPT_DIR) != NULL).Text("Local checkpoint location needs to be defined.");
 
-  ckptDirGlobal = getenv(ENV_VAR_GLOBAL_CKPT_DIR);
-  ckptDirLocal = getenv(ENV_VAR_LOCAL_CKPT_DIR);
-  ckptType = CKPT_GLOBAL;
+  //set all types of checkpoint dirs based on local and global locations
+  ckptDir[CKPT_LOCAL] = getenv(ENV_VAR_LOCAL_CKPT_DIR);
+  ckptDir[CKPT_PARTNER] = getenv(ENV_VAR_LOCAL_CKPT_DIR);
+  ckptDir[CKPT_PARTNER] += "/partner/";
+  ckptDir[CKPT_GLOBAL] = getenv(ENV_VAR_GLOBAL_CKPT_DIR);
+  ckptType = CKPT_LOCAL;
 
   /*Test if the listener socket is already open*/
   if (fcntl(PROTECTED_COORD_FD, F_GETFD) != -1) {

@@ -25,15 +25,12 @@
 #include <sys/types.h>
 #include "../jalib/jalloc.h"
 #include "uniquepid.h"
+#include "constants.h"
 
 #define MB                 1024 * 1024
 #define RESTORE_STACK_SIZE 5 * MB
 #define RESTORE_MEM_SIZE   5 * MB
 #define RESTORE_TOTAL_SIZE (RESTORE_STACK_SIZE + RESTORE_MEM_SIZE)
-
-#define CKPT_GLOBAL 0
-#define CKPT_LOCAL 1
-
 
 namespace dmtcp
 {
@@ -156,11 +153,11 @@ class ProcessInfo
     bool vdsoOffsetMismatch(uint64_t f1, uint64_t f2,
                             uint64_t f3, uint64_t f4);
 
-    string getCkptFilename() const { return (_ckptType == CKPT_GLOBAL) ? _ckptFileNameGlobal : _ckptFileNameLocal; }
+    string getCkptFilename();
 
-    string getCkptFilesSubDir() const { return (_ckptType == CKPT_GLOBAL) ? _ckptFilesSubDirGlobal : _ckptFilesSubDirLocal; }
+    string getCkptFilesSubDir();
 
-    string getCkptDir() const { return (_ckptType == CKPT_GLOBAL) ? _ckptDirGlobal : _ckptDirLocal; }
+    string getCkptDir();
 
     void setCkptDir(const char *);
     void setCkptFilename(const char *);
@@ -205,13 +202,9 @@ class ProcessInfo
     //used for determining which ckpt location to use
     uint32_t _ckptType;
 
-    string _ckptDirGlobal;
-    string _ckptFileNameGlobal;
-    string _ckptFilesSubDirGlobal;
-
-    string _ckptDirLocal;
-    string _ckptFileNameLocal;
-    string _ckptFilesSubDirLocal;
+    string _ckptDir[CKPT_GLOBAL+1];
+    string _ckptFileName[CKPT_GLOBAL+1];
+    string _ckptFilesSubDir[CKPT_GLOBAL+1];
 
     UniquePid _upid;
     UniquePid _uppid;
