@@ -164,6 +164,9 @@ class ProcessInfo
     void updateCkptDirFileSubdir(string newCkptDir = "");
     uint32_t getCkptType(void) const { return _ckptType; }
     void setCkptType(int ckpt_type) { _ckptType = ckpt_type; }
+    uint32_t getTestMode(void) const { return _testMode; }
+    void setTestMode(uint32_t mode) { _testMode = mode; }
+    char *getHostName(int rank);
 
   private:
     map<pid_t, UniquePid>_childTable;
@@ -198,6 +201,9 @@ class ProcessInfo
     string _hostname;
     string _launchCWD;
     string _ckptCWD;
+
+    uint32_t _testMode;
+    char hostName[HOSTNAME_MAXSIZE];
 
     //used for determining which ckpt location to use
     uint32_t _ckptType;

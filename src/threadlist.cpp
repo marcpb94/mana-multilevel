@@ -28,6 +28,7 @@
 #include "threadsync.h"
 #include "uniquepid.h"
 #include "util.h"
+#include <mpi.h>
 
 // Eventually, we may move this macro to config.h.in, but it doesn't currently
 // interfere with ordinary DMTCP.
@@ -431,6 +432,21 @@ ThreadList::writeCkpt()
   CkptSerializer::writeCkptImage(&mtcpHdr, sizeof(mtcpHdr));
 }
 
+void
+ThreadList::getSystemTopology()
+{
+  char *hostname;
+  int node_size, local_rank, node, num_nodes;
+  int mpi_size, mpi_rank;
+  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  hostname = ProcessInfo::instance().getHostName(mpi_rank);
+  num_nodes = 0;
+  //allocate enough memory for all hostnames
+  char *nodelist = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
+  strcpy(nodelist + (mpi_rank * HOSTNAME_MAXSIZE), hostname);
+}
+
 /*************************************************************************
  *
  *  This executes as a thread.  It sleeps for the checkpoint interval
@@ -510,25 +526,39 @@ checkpointhread(void *dummy)
    * loop.
    */
   while (1) {
+
+    printf("Waiting for checkpoint request...\n");
     /* Wait a while between writing checkpoint files */
     JTRACE("before DmtcpWorker::waitForCheckpointRequest()");
     DmtcpWorker::waitForCheckpointRequest();
 
     restoreInProgress = false;
 
+    //printf("Suspending threads...\n");
+
     suspendThreads();
+
+    //printf("Precheckpoint...\n");
 
     JTRACE("Prepare plugin, etc. for checkpoint");
     DmtcpWorker::preCheckpoint();
+
+    //printf("Checkpoint...\n");
 
     /* All other threads halted in 'stopthisthread' routine (they are all
      * in state ST_SUSPENDED).  It's safe to write checkpoint file now.
      */
     ThreadList::writeCkpt();
 
+    //printf("Postcheckpoint...\n");
+
     DmtcpWorker::postCheckpoint();
 
+    //printf("Resume threads...\n");
+
     resumeThreads();
+
+    printf("Checkpoint done.\n");
   }
 
   return NULL;

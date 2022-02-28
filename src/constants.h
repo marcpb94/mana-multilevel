@@ -182,3 +182,5 @@
 #define CKPT_LOCAL 0
 #define CKPT_PARTNER 1
 #define CKPT_GLOBAL 2
+
+#define HOSTNAME_MAXSIZE 50

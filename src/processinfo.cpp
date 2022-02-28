@@ -310,6 +310,7 @@ ProcessInfo::init()
   }
  
   _ckptType = tmp_type;
+  _testMode = 0;
 }
 
 void
@@ -864,5 +865,18 @@ ProcessInfo::serialize(jalib::JBinarySerializer &o)
   o & _childTable;
 
   JSERIALIZE_ASSERT_POINT("EOF");
+}
+char *
+ProcessInfo::getHostName(int rank)
+{
+  if(_testMode){
+    JASSERT(gethostname(hostName, sizeof hostName) == 0) (JASSERT_ERRNO);
+  }
+  else {
+    //fake node size for testing purposes
+    int node_size = 2;
+    sprintf(hostName, "node%d", rank/node_size);
+  }
+  return hostName;
 }
 }
