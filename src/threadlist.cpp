@@ -82,6 +82,8 @@ extern sem_t sem_launch; // allocated in coordinatorapi.cpp
 static sem_t semNotifyCkptThread;
 static sem_t semWaitForCkptThreadSignal;
 
+static int knownTopology = 0;
+
 static void *checkpointhread(void *dummy);
 static void suspendThreads();
 static void resumeThreads();
@@ -443,8 +445,50 @@ ThreadList::getSystemTopology()
   hostname = ProcessInfo::instance().getHostName(mpi_rank);
   num_nodes = 0;
   //allocate enough memory for all hostnames
-  char *nodelist = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
-  strcpy(nodelist + (mpi_rank * HOSTNAME_MAXSIZE), hostname);
+  char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
+  char *nameList = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
+  int *nodeList = (int *)malloc(sizeof(int) * mpi_size);
+  memset(nameList, 0, HOSTNAME_MAXSIZE * mpi_size);
+  memset(nodeList, 0, sizeof(int) * mpi_size);
+  //distribute all hostnames
+  MPI_Allgather(hostname, HOSTNAME_MAXSIZE, MPI_CHAR, allNodes, 
+                  HOSTNAME_MAXSIZE, MPI_CHAR, MPI_COMM_WORLD);
+  num_nodes = 0;
+  int i, j, found;
+  for (i = 0; i < mpi_size; i++){
+    found = 0;
+    //check if already in the list
+    for (j = 0; j < num_nodes && !found; j++){
+      if(strcmp(nameList + j*HOSTNAME_MAXSIZE, allNodes + i*HOSTNAME_MAXSIZE) == 0){
+        found = 1;
+        break;
+      }
+    }
+    if (!found){
+      //add node mapping
+      nodeList[i] = num_nodes;
+      //add new node to nodelist
+      strcpy(nameList + num_nodes*HOSTNAME_MAXSIZE, allNodes + i*HOSTNAME_MAXSIZE);
+      num_nodes++;
+    }
+    else {
+      //add node mapping
+      nodeList[i] = j;
+    }
+  }
+
+  //test print
+  /*for(i = 0; i < num_nodes; i++){
+    printf("%d: %s\n", i, nameList + i*HOSTNAME_MAXSIZE);
+  }
+  for(i = 0; i < mpi_size; i++){
+    printf("Rank %d is contained in node %d.\n", i, nodeList[i]);
+  }
+  fflush(stdout);
+  */
+
+  //free resources
+  free(allNodes);
 }
 
 /*************************************************************************
@@ -554,11 +598,21 @@ checkpointhread(void *dummy)
 
     DmtcpWorker::postCheckpoint();
 
-    //printf("Resume threads...\n");
+    
+    //build topology during the fist occurrence
+    if(!knownTopology){
+      //printf("First time, checking topology...\n");
+      //fflush(stdout);
+      ThreadList::getSystemTopology();
+      knownTopology = 1;
+    }
+
+    //post-processing if needed by the checkpoint type
 
     resumeThreads();
 
     printf("Checkpoint done.\n");
+    fflush(stdout);
   }
 
   return NULL;

@@ -791,6 +791,7 @@ ConfigInfo::ConfigInfo() {
   localCkptDir = "";
   globalInterval = 0;
   localInterval = 0;
+  testMode = 0;
 }
 
 void
@@ -829,6 +830,15 @@ ConfigInfo::readConfigFromFile(std::string filename){
         catch (std::exception& e){
           JASSERT(false).Text("Error parsing local checkpoint interval.");
         }
+      }
+      else if (option == TEST_MODE_OPTION){
+        try {
+          testMode = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing test mode.");
+        }
+        JASSERT(testMode == 0 || testMode == 1)(testMode).Text("Invalid test mode.");
       }
       else {
         JASSERT(false)(option).Text("Invalid config option.");

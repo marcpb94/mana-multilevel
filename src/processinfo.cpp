@@ -310,7 +310,18 @@ ProcessInfo::init()
   }
  
   _ckptType = tmp_type;
-  _testMode = 0;
+
+  char *test = getenv(ENV_VAR_TEST_MODE);
+  if(test != NULL){
+    JASSERT(strlen(test) == 1 && 
+		(test[0] == '0' || test[1] == '1'))(test)
+		.Text("Invalid test mode env var.");
+    
+    _testMode = atoi(test);
+  }
+  else {
+    _testMode = 0;
+  }
 }
 
 void
@@ -869,7 +880,7 @@ ProcessInfo::serialize(jalib::JBinarySerializer &o)
 char *
 ProcessInfo::getHostName(int rank)
 {
-  if(_testMode){
+  if(!_testMode){
     JASSERT(gethostname(hostName, sizeof hostName) == 0) (JASSERT_ERRNO);
   }
   else {
