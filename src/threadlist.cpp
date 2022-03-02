@@ -638,6 +638,9 @@ checkpointhread(void *dummy)
     }
 
     //post-processing if needed by the checkpoint type
+    if(ProcessInfo::instance().getCkptType() == CKPT_PARTNER){
+      CkptSerializer::performPartnerCopy();
+    }
 
     resumeThreads();
 

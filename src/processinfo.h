@@ -168,6 +168,10 @@ class ProcessInfo
     void setTestMode(uint32_t mode) { _testMode = mode; }
     char *getHostName(int rank);
     void setTopology(int num_nodes, char *nameList, int *nodeMap, int *partnerMap);
+    int getNumNodes() const { return _topoNumNodes; }
+    char *getNameList() const { return _topoNameList; }
+    int *getNodeMap() const { return _topoNodeMap; }
+    int *getPartnerMap() const { return _topoPartnerMap; }
 
   private:
     map<pid_t, UniquePid>_childTable;

@@ -47,6 +47,7 @@
 #include "protectedfds.h"
 #include "syscallwrappers.h"
 #include "util.h"
+#include <mpi.h>
 
 // aarch64 doesn't define SYS_pipe kernel call by default.
 #if defined(__aarch64__)
@@ -405,6 +406,8 @@ CkptSerializer::createCkptDir()
 {
   string ckptDir = ProcessInfo::instance().getCkptDir();
 
+  printf("Performing checkpoint on dir: %s\n", ckptDir.c_str());
+
   JASSERT(!ckptDir.empty());
   JASSERT(mkdir(ckptDir.c_str(), S_IRWXU) == 0 || errno == EEXIST)
     (JASSERT_ERRNO) (ckptDir)
@@ -478,6 +481,29 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
   }
 
   JTRACE("checkpoint complete");
+}
+
+void
+CkptSerializer::performPartnerCopy()
+{
+  int mpi_size, mpi_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+  string ckptFilename = ProcessInfo::instance().getCkptFilename();
+  string partnerFilename = ckptFilename + "_partner";
+  int *partnerMap = ProcessInfo::instance().getPartnerMap();
+  int myPartner = partnerMap[mpi_rank];
+
+  //decide send/recv order
+  if(mpi_rank > myPartner){
+
+  }
+  else {
+
+  }
+
+  //int fd = open(partnerFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY);
+  
 }
 
 void
