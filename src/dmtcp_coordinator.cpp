@@ -1839,6 +1839,7 @@ main(int argc, char **argv)
       setenv(ENV_VAR_LOCAL_CKPT_DIR, conf.localCkptDir.c_str(), 1);
       setenv(ENV_VAR_GLOBAL_CKPT_DIR, conf.globalCkptDir.c_str(), 1);
       theCheckpointInterval[CKPT_LOCAL] = conf.localInterval;
+      theCheckpointInterval[CKPT_PARTNER] = conf.partnerInterval;
       theCheckpointInterval[CKPT_GLOBAL] = conf.globalInterval;
       shift; shift;
     } else if (argc > 1 && (s == "-t" || s == "--tmpdir")) {

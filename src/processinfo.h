@@ -167,6 +167,7 @@ class ProcessInfo
     uint32_t getTestMode(void) const { return _testMode; }
     void setTestMode(uint32_t mode) { _testMode = mode; }
     char *getHostName(int rank);
+    void setTopology(int num_nodes, char *nameList, int *nodeMap, int *partnerMap);
 
   private:
     map<pid_t, UniquePid>_childTable;
@@ -204,6 +205,13 @@ class ProcessInfo
 
     uint32_t _testMode;
     char hostName[HOSTNAME_MAXSIZE];
+
+    //topology information
+    int _topoNumNodes;
+    char *_topoNameList;
+    int *_topoNodeMap;
+    int *_topoPartnerMap;
+    
 
     //used for determining which ckpt location to use
     uint32_t _ckptType;

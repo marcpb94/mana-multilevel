@@ -790,6 +790,7 @@ ConfigInfo::ConfigInfo() {
   globalCkptDir = "";
   localCkptDir = "";
   globalInterval = 0;
+  partnerInterval = 0;
   localInterval = 0;
   testMode = 0;
 }
@@ -821,6 +822,14 @@ ConfigInfo::readConfigFromFile(std::string filename){
         }
         catch (std::exception& e){
           JASSERT(false).Text("Error parsing global checkpoint interval.");
+        }
+      }
+      else if (option == PARTNER_CKPT_INT_OPTION){
+        try {
+          partnerInterval = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing partner checkpoint interval.");
         }
       }
       else if (option == LOCAL_CKPT_INT_OPTION){

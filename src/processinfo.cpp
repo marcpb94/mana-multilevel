@@ -314,7 +314,7 @@ ProcessInfo::init()
   char *test = getenv(ENV_VAR_TEST_MODE);
   if(test != NULL){
     JASSERT(strlen(test) == 1 && 
-		(test[0] == '0' || test[1] == '1'))(test)
+		(test[0] == '0' || test[0] == '1'))(test)
 		.Text("Invalid test mode env var.");
     
     _testMode = atoi(test);
@@ -483,6 +483,13 @@ ProcessInfo::updateCkptDirFileSubdir(string newCkptDir)
     if (_ckptType == CKPT_PARTNER) {
       ckptDir = ckptDir + "/partner/";
     }
+
+    //create dir if needed
+    //necessary for partner subdirectory
+    JASSERT(!ckptDir.empty());
+    JASSERT(mkdir(ckptDir.c_str(), S_IRWXU) == 0 || errno == EEXIST)
+      (JASSERT_ERRNO) (ckptDir)
+      .Text("Error creating checkpoint directory");
   }
 
   ostringstream o;
@@ -890,4 +897,13 @@ ProcessInfo::getHostName(int rank)
   }
   return hostName;
 }
+
+void
+ProcessInfo::setTopology(int num_nodes, char *nameList, int *nodeMap, int *partnerMap){
+  _topoNumNodes = num_nodes;
+  _topoNameList = nameList;
+  _topoNodeMap = nodeMap;
+  _topoPartnerMap = partnerMap;
+}
+
 }
