@@ -515,7 +515,7 @@ ThreadList::getSystemTopology()
     printf("Rank %d is partner with rank %d\n", i, partnerMap[i]);
   }
   fflush(stdout);
-  */ 
+  */
 
   //free auxiliary arrays
   free(allNodes);
@@ -629,7 +629,7 @@ checkpointhread(void *dummy)
     DmtcpWorker::postCheckpoint();
 
     
-    //build topology during the fist occurrence
+    //build topology once
     if(!knownTopology){
       //printf("First time, checking topology...\n");
       //fflush(stdout);

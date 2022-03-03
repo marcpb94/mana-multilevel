@@ -186,3 +186,5 @@
 #define CKPT_GLOBAL 2
 
 #define HOSTNAME_MAXSIZE 50
+
+#define DATA_BLOCK_SIZE 1024
