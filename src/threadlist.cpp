@@ -434,93 +434,6 @@ ThreadList::writeCkpt()
   CkptSerializer::writeCkptImage(&mtcpHdr, sizeof(mtcpHdr));
 }
 
-void
-ThreadList::getSystemTopology()
-{
-  char *hostname;
-  int num_nodes;
-  int mpi_size, mpi_rank;
-  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-  hostname = ProcessInfo::instance().getHostName(mpi_rank);
-  num_nodes = 0;
-  //allocate enough memory for all hostnames
-  char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
-  char *nameList = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
-  int *nodeMap = (int *)malloc(sizeof(int) * mpi_size);
-  int *partnerMap = (int *)malloc(sizeof(int) * mpi_size);
-  memset(nameList, 0, HOSTNAME_MAXSIZE * mpi_size);
-  memset(nodeMap, 0, sizeof(int) * mpi_size);
-  //distribute all hostnames
-  MPI_Allgather(hostname, HOSTNAME_MAXSIZE, MPI_CHAR, allNodes, 
-                  HOSTNAME_MAXSIZE, MPI_CHAR, MPI_COMM_WORLD);
-  
-  //create rank-node mapping
-  num_nodes = 0;
-  int i, j, found;
-  for (i = 0; i < mpi_size; i++){
-    found = 0;
-    //check if already in the list
-    for (j = 0; j < num_nodes && !found; j++){
-      if(strcmp(nameList + j*HOSTNAME_MAXSIZE, allNodes + i*HOSTNAME_MAXSIZE) == 0){
-        found = 1;
-        break;
-      }
-    }
-    if (!found){
-      //add node mapping
-      nodeMap[i] = num_nodes;
-      //add new node to nodelist
-      strcpy(nameList + num_nodes*HOSTNAME_MAXSIZE, allNodes + i*HOSTNAME_MAXSIZE);
-      num_nodes++;
-    }
-    else {
-      //add node mapping
-      nodeMap[i] = j;
-    }
-  }
-
-  //initialize partner map with impossible value
-  for(i = 0; i < mpi_size; i++) partnerMap[i] = -1;
-  //create partner mapping
-  for (i = 0; i < mpi_size; i++){
-    if(partnerMap[i] == -1){
-      found = 0;
-      //find available partner rank in different node
-      for(j = i+1; j < mpi_size; j++){
-        if(nodeMap[i] != nodeMap[j] && partnerMap[j] == -1){
-          //connect both nodes
-          partnerMap[i] = j;
-          partnerMap[j] = i;
-          found = 1;
-          break;
-        }
-      }
-      JASSERT(found).Text("Could not complete partner mapping, application topology might contain uneven ranks per node or the execution is performed locally without enabling test mode.");
-    }
-  }
-
-  //communicate topology to processInfo
-  ProcessInfo::instance().setTopology(num_nodes, nameList, nodeMap, partnerMap);
-
-  //test print
-  /*
-  for(i = 0; i < num_nodes; i++){
-    printf("%d: %s\n", i, nameList + i*HOSTNAME_MAXSIZE);
-  }
-  for(i = 0; i < mpi_size; i++){
-    printf("Rank %d is contained in node %d.\n", i, nodeMap[i]);
-  }
-  for(i = 0; i < mpi_size; i++){
-    printf("Rank %d is partner with rank %d\n", i, partnerMap[i]);
-  }
-  fflush(stdout);
-  */
-
-  //free auxiliary arrays
-  free(allNodes);
-}
-
 /*************************************************************************
  *
  *  This executes as a thread.  It sleeps for the checkpoint interval
@@ -633,7 +546,9 @@ checkpointhread(void *dummy)
     if(!knownTopology){
       //printf("First time, checking topology...\n");
       //fflush(stdout);
-      ThreadList::getSystemTopology();
+      //TODO: have pointers here and modify them with UtilsMPI and set info to processinfo
+      UtilsMPI::instance().getSystemTopology();
+      ProcessInfo::instance().setTopology(num_nodes, nameList, nodeMap, partnerMap);
       knownTopology = 1;
     }
 

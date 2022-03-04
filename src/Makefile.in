@@ -168,7 +168,7 @@ __d_bindir__dmtcp_nocheckpoint_OBJECTS =  \
 	$(am___d_bindir__dmtcp_nocheckpoint_OBJECTS)
 __d_bindir__dmtcp_nocheckpoint_LDADD = $(LDADD)
 am___d_bindir__dmtcp_restart_OBJECTS = dmtcp_restart.$(OBJEXT) \
-	util_exec.$(OBJEXT)
+	util_exec.$(OBJEXT) util_mpi.$(OBJEXT) util_misc.$(OBJEXT)
 __d_bindir__dmtcp_restart_OBJECTS =  \
 	$(am___d_bindir__dmtcp_restart_OBJECTS)
 __d_bindir__dmtcp_restart_DEPENDENCIES = libdmtcpinternal.a libjalib.a \
@@ -573,7 +573,7 @@ libsyscallsreal_a_SOURCES = syscallsreal.c trampolines.cpp
 libnohijack_a_SOURCES = nosyscallsreal.c dmtcpnohijackstubs.cpp
 __d_bindir__dmtcp_coordinator_SOURCES = dmtcp_coordinator.cpp lookup_service.cpp restartscript.cpp
 __d_bindir__dmtcp_nocheckpoint_SOURCES = dmtcp_nocheckpoint.c
-__d_bindir__dmtcp_restart_SOURCES = dmtcp_restart.cpp util_exec.cpp
+__d_bindir__dmtcp_restart_SOURCES = dmtcp_restart.cpp util_exec.cpp util_mpi.cpp util_misc.cpp
 __d_bindir__dmtcp_command_SOURCES = dmtcp_command.cpp
 __d_libdir__libdmtcp_so_SOURCES = dmtcpworker.cpp threadsync.cpp \
 		      coordinatorapi.cpp execwrappers.cpp \
@@ -603,7 +603,7 @@ __d_bindir__dmtcp_launch_LDADD = libdmtcpinternal.a libjalib.a \
 			  libnohijack.a -lpthread -lrt -ldl
 
 __d_bindir__dmtcp_restart_LDADD = libdmtcpinternal.a libjalib.a \
-			  libnohijack.a -lpthread -lrt -ldl
+			  libnohijack.a -lpthread -lrt -ldl -lmpi
 
 __d_bindir__dmtcp_command_LDADD = libdmtcpinternal.a libjalib.a \
 			  libnohijack.a -lpthread -lrt -ldl
