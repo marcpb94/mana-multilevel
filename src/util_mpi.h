@@ -18,7 +18,6 @@ private:
 
   int _rank = -1;
   int _size = -1;
-  char hostName[HOSTNAME_MAXSIZE];
 
 public:
 
@@ -26,8 +25,8 @@ public:
   int getRank() const { return _rank; }
   int getSize() const { return _size; }
   char* getHostname(int test_mode);
-  void getSystemTopology(ConfigInfo cfg);
-  string recoverFromCrash(ConfigInfo cfg);
+  void getSystemTopology(int test_mode, Topology **topo);
+  string recoverFromCrash(ConfigInfo *cfg);
   static UtilsMPI instance();
 
 };

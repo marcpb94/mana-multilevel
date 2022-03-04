@@ -959,7 +959,7 @@ main(int argc, char **argv)
 
   //if restartDir not specified, perform recovery procedure
   if (restartDir.empty()){
-    restartDir = UtilsMPI::instance().recoverFromCrash(conf);
+    restartDir = UtilsMPI::instance().recoverFromCrash(&conf);
   }
 
   if ((getenv(ENV_VAR_NAME_PORT) == NULL ||

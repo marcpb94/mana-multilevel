@@ -889,3 +889,9 @@ ConfigInfo::readRestartDir(){
 
   return ckptDir;
 }
+
+Topology::Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map){
+  numNodes = num_nodes; nameList = name_list; hostname = host_name; 
+  nodeMap = node_map; partnerMap = partner_map;
+}
+

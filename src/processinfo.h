@@ -26,6 +26,7 @@
 #include "../jalib/jalloc.h"
 #include "uniquepid.h"
 #include "constants.h"
+#include "util_config.h"
 
 #define MB                 1024 * 1024
 #define RESTORE_STACK_SIZE 5 * MB
@@ -166,12 +167,11 @@ class ProcessInfo
     void setCkptType(int ckpt_type) { _ckptType = ckpt_type; }
     uint32_t getTestMode(void) const { return _testMode; }
     void setTestMode(uint32_t mode) { _testMode = mode; }
-    char *getHostName(int rank);
-    void setTopology(int num_nodes, char *nameList, int *nodeMap, int *partnerMap);
-    int getNumNodes() const { return _topoNumNodes; }
-    char *getNameList() const { return _topoNameList; }
-    int *getNodeMap() const { return _topoNodeMap; }
-    int *getPartnerMap() const { return _topoPartnerMap; }
+    void setTopology(Topology *topo);
+    int getNumNodes() const { return _topo->numNodes; }
+    char *getNameList() const { return _topo->nameList; }
+    int *getNodeMap() const { return _topo->nodeMap; }
+    int *getPartnerMap() const { return _topo->partnerMap; }
 
   private:
     map<pid_t, UniquePid>_childTable;
@@ -208,14 +208,9 @@ class ProcessInfo
     string _ckptCWD;
 
     uint32_t _testMode;
-    char hostName[HOSTNAME_MAXSIZE];
 
     //topology information
-    int _topoNumNodes;
-    char *_topoNameList;
-    int *_topoNodeMap;
-    int *_topoPartnerMap;
-    
+    Topology *_topo;
 
     //used for determining which ckpt location to use
     uint32_t _ckptType;

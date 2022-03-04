@@ -21,14 +21,14 @@ UtilsMPI::instance(){
 }
 
 void
-UtilsMPI::getSystemTopology(ConfigInfo cfg)
+UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
 {
   char *hostname;
   int num_nodes;
   int mpi_size, mpi_rank;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-  hostname = UtilsMPI::instance().getHostname(cfg.testMode);
+  hostname = UtilsMPI::instance().getHostname(test_mode);
   num_nodes = 0;
   //allocate enough memory for all hostnames
   char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
@@ -86,12 +86,15 @@ UtilsMPI::getSystemTopology(ConfigInfo cfg)
     }
   }
 
+  *topo = new Topology(num_nodes, nameList, hostname, nodeMap, partnerMap);
+
   free(allNodes);
 }
 
 char *
 UtilsMPI::getHostname(int test_mode)
 {
+  char *hostName = (char *)malloc(HOSTNAME_MAXSIZE);
   if(!test_mode){
     JASSERT(gethostname(hostName, sizeof hostName) == 0) (JASSERT_ERRNO);
   }
@@ -104,7 +107,7 @@ UtilsMPI::getHostname(int test_mode)
 }
 
 string
-UtilsMPI::recoverFromCrash(ConfigInfo cfg){
+UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
   int rank = UtilsMPI::instance().getRank();
   printf("Test UtilsMPI rank: %d\n", rank);
   fflush(stdout);

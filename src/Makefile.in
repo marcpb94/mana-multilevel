@@ -181,7 +181,8 @@ am___d_libdir__libdmtcp_so_OBJECTS = dmtcpworker.$(OBJEXT) \
 	writeckpt.$(OBJEXT) glibcsystem.$(OBJEXT) threadlist.$(OBJEXT) \
 	siginfo.$(OBJEXT) dmtcpplugin.$(OBJEXT) popen.$(OBJEXT) \
 	syslogwrappers.$(OBJEXT) dmtcp_dlsym.$(OBJEXT) \
-	plugininfo.$(OBJEXT) pluginmanager.$(OBJEXT)
+	plugininfo.$(OBJEXT) pluginmanager.$(OBJEXT) \
+	util_mpi.$(OBJEXT)
 __d_libdir__libdmtcp_so_OBJECTS =  \
 	$(am___d_libdir__libdmtcp_so_OBJECTS)
 __d_libdir__libdmtcp_so_DEPENDENCIES = libdmtcpinternal.a libjalib.a \
@@ -585,7 +586,8 @@ __d_libdir__libdmtcp_so_SOURCES = dmtcpworker.cpp threadsync.cpp \
 		      glibcsystem.cpp \
 		      threadlist.cpp siginfo.cpp \
 		      dmtcpplugin.cpp popen.cpp syslogwrappers.cpp \
-		      dmtcp_dlsym.cpp plugininfo.cpp pluginmanager.cpp
+		      dmtcp_dlsym.cpp plugininfo.cpp pluginmanager.cpp \
+	              util_mpi.cpp
 
 __d_libdir__libdmtcp_so_LDFLAGS = -shared -Xlinker -znow
 

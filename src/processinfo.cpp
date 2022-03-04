@@ -884,26 +884,10 @@ ProcessInfo::serialize(jalib::JBinarySerializer &o)
 
   JSERIALIZE_ASSERT_POINT("EOF");
 }
-char *
-ProcessInfo::getHostName(int rank)
-{
-  if(!_testMode){
-    JASSERT(gethostname(hostName, sizeof hostName) == 0) (JASSERT_ERRNO);
-  }
-  else {
-    //fake node size for testing purposes
-    int node_size = 2;
-    sprintf(hostName, "node%d", rank/node_size);
-  }
-  return hostName;
-}
 
 void
-ProcessInfo::setTopology(int num_nodes, char *nameList, int *nodeMap, int *partnerMap){
-  _topoNumNodes = num_nodes;
-  _topoNameList = nameList;
-  _topoNodeMap = nodeMap;
-  _topoPartnerMap = partnerMap;
+ProcessInfo::setTopology(Topology *topo){
+  _topo = topo;
 }
 
 }

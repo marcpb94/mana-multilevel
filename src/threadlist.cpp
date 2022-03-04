@@ -28,7 +28,7 @@
 #include "threadsync.h"
 #include "uniquepid.h"
 #include "util.h"
-#include <mpi.h>
+#include "util_mpi.h"
 
 // Eventually, we may move this macro to config.h.in, but it doesn't currently
 // interfere with ordinary DMTCP.
@@ -546,9 +546,10 @@ checkpointhread(void *dummy)
     if(!knownTopology){
       //printf("First time, checking topology...\n");
       //fflush(stdout);
-      //TODO: have pointers here and modify them with UtilsMPI and set info to processinfo
-      UtilsMPI::instance().getSystemTopology();
-      ProcessInfo::instance().setTopology(num_nodes, nameList, nodeMap, partnerMap);
+      Topology *topo;
+      int test_mode = ProcessInfo::instance().getTestMode();
+      UtilsMPI::instance().getSystemTopology(test_mode, &topo);
+      ProcessInfo::instance().setTopology(topo);
       knownTopology = 1;
     }
 

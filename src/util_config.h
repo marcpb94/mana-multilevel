@@ -18,6 +18,9 @@
 
 
 struct ConfigInfo {
+
+public:
+
   std::string globalCkptDir;
   std::string localCkptDir;
   uint32_t globalInterval;
@@ -30,6 +33,19 @@ struct ConfigInfo {
   static void writeRestartDir(std::string val);
   static std::string readRestartDir();
 };
+
+struct Topology {
+
+public:
+
+  int numNodes;
+  char *nameList, *hostname;
+  int *nodeMap, *partnerMap;
+
+  Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map);
+
+};
+
 
 
 #endif //ifndef CONFIG_H
