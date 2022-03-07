@@ -860,34 +860,72 @@ ConfigInfo::readConfigFromFile(std::string filename){
   }
 }        
 
-void
-ConfigInfo::writeRestartDir(std::string val){
- std::ofstream file(".restartdir", std::fstream::out | std::fstream::trunc);
-
- if(file.is_open()){
-    file.write(val.c_str(), val.length());
-    file.close();
-  }
-  else {
-    JASSERT(false).Text("Could not open .restartdir file.");
+RestartInfo::RestartInfo(){
+  int i;
+  for (i = 0; i <= CKPT_GLOBAL; i++){
+    ckptDir[i] = "";
+    //initialize as not having performed any checkpoints
+    ckptTime[i] = 0;
   }
 }
 
-std::string
-ConfigInfo::readRestartDir(){
-  std::string ckptDir;
-  std::ifstream file(".restartdir", std::fstream::in);
+//FIXME: currently does not care about types of checkpoint,
+// and can potentially bury higher level checkpoints with multiple lower types
+void
+RestartInfo::update(string ckpt_dir, int ckpt_type, uint64_t curr_time){
+  ckptDir[ckpt_type] = ckpt_dir;
+  ckptTime[ckpt_type] = curr_time;
+}
+
+void
+RestartInfo::writeRestartInfo(){
+  int i;
+  std::ofstream file(".restartinfo", std::fstream::out | std::fstream::trunc);
+  std::string aux;
 
   if(file.is_open()){
-    std::getline(file, ckptDir);
+    for (i = 0; i <= CKPT_GLOBAL; i++){
+      file.write(ckptDir[i].c_str(), ckptDir[i].length());
+      file.write("\n", 1);
+    }
+    for (i = 0; i <= CKPT_GLOBAL; i++){
+      aux = std::to_string(ckptTime[i]);
+      file.write(aux.c_str(), aux.length());
+      file.write("\n", 1);
+    }
     file.close();
   }
   else {
-    //return empty string if file does not exist
-    return "";
+    JASSERT(false).Text("Could not open .restartinfo file for writing.");
   }
+}
 
-  return ckptDir;
+int
+RestartInfo::readRestartInfo(){
+  int i;
+  std::string aux;
+  std::ifstream file(".restartinfo", std::fstream::in);
+
+  if(file.is_open()){
+    try {
+      for(i = 0; i <= CKPT_GLOBAL; i++){
+        std::getline(file, ckptDir[i]);
+      }
+      for(i = 0; i <= CKPT_GLOBAL; i++){
+        std::getline(file, aux);
+        ckptTime[i] = std::stoll(aux);
+      }
+      file.close();
+      return 1;
+    }
+    catch (std::exception& e){
+      file.close();
+      return 0;
+    }
+  }
+  else {
+    return 0;
+  }
 }
 
 Topology::Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map){

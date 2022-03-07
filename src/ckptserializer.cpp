@@ -48,7 +48,7 @@
 #include "protectedfds.h"
 #include "syscallwrappers.h"
 #include "util.h"
-#include <mpi.h>
+#include "util_mpi.h"
 
 // aarch64 doesn't define SYS_pipe kernel call by default.
 #if defined(__aarch64__)
@@ -487,85 +487,9 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
 void
 CkptSerializer::performPartnerCopy()
 {
-  printf("Starting to perform partner copy...\n");
-  fflush(stdout);
-  int mpi_size, mpi_rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-  MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   string ckptFilename = ProcessInfo::instance().getCkptFilename();
-  string partnerFilename = ckptFilename + "_partner";
   int *partnerMap = ProcessInfo::instance().getPartnerMap();
-  int myPartner = partnerMap[mpi_rank];
-
-  int fd_p = open(partnerFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
-  int fd_m = open(ckptFilename.c_str(), O_RDONLY);
-  JASSERT(fd_p != -1 && fd_m != -1) (fd_p)(fd_m);
-
-
-  struct stat sb;
-  JASSERT(fstat(fd_m, &sb) == 0);
-  
-  off_t ckptSize = sb.st_size, partnerCkptSize;
-  off_t toSend = ckptSize, toRecv = 0;
-  
-  char *buff = (char *)malloc(DATA_BLOCK_SIZE);
-
-  //decide send/recv order
-  if(mpi_rank > myPartner){
-     //exchange ckpt file sizes
-     MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-     MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-     toRecv = partnerCkptSize;
-     //send ckpt file
-     while (toSend > 0){
-       off_t sendSize = (toSend > DATA_BLOCK_SIZE) ? 
-                           DATA_BLOCK_SIZE : toSend;
-
-       Util::readAll(fd_m, buff, sendSize);
-       MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-       toSend -= sendSize;
-     } 
-     //receive partner copy
-     while(toRecv > 0){
-       off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
-                           DATA_BLOCK_SIZE : toRecv;
-
-       MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-       Util::writeAll(fd_p, buff, recvSize);
-       toRecv -= recvSize;
-     }
-  }
-  else {
-    //exchange ckpt file sizes
-    MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    toRecv = partnerCkptSize;
-    MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-    //receive partner copy
-    while(toRecv > 0){
-       off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
-                           DATA_BLOCK_SIZE : toRecv;
-     
-       MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-       Util::writeAll(fd_p, buff, recvSize);
-       toRecv -= recvSize;
-     }
-     //send ckpt file
-     while (toSend > 0){
-       off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
-                           DATA_BLOCK_SIZE : toSend;
-
-       Util::readAll(fd_m, buff, sendSize);
-       MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-       toSend -= sendSize;
-     }
-  }
-
-  printf("Finished performing partner copy.\n");
-  fflush(stdout);
-
-  free(buff);
-  _real_close(fd_p);
-  _real_close(fd_m);
+  UtilsMPI::instance().performPartnerCopy(ckptFilename, partnerMap);
 }
 
 void

@@ -116,6 +116,8 @@ if [ "$verbose" == 1 ]; then
   set -x
 fi
 
+export LD_LIBRARY_PATH=/usr/local/lib/
+
 $dir/dmtcp_restart  --mpi --join-coordinator \
                     --coord-host $submissionHost --coord-port $submissionPort \
                     $options

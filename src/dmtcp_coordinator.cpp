@@ -214,6 +214,9 @@ static string tmpDir;
 static string ckptDir[CKPT_GLOBAL+1];
 static uint32_t ckptType;
 
+//restart info
+static RestartInfo *restartInfo = NULL;
+
 //vars to handle interval for two checkpoint types
 static uint32_t ckptTimeLeft[CKPT_GLOBAL+1];
 static uint32_t currentAlarmCkptType = CKPT_LOCAL;
@@ -234,6 +237,8 @@ static pid_t _nextVirtualPid = INITIAL_VIRTUAL_PID;
 
 static int theNextClientNumber = 1;
 vector<CoordClient *>clients;
+
+static uint64_t getRealCurrTime();
 
 CoordClient::CoordClient(const jalib::JSocket &sock,
                          const struct sockaddr_storage *addr,
@@ -626,8 +631,15 @@ DmtcpCoordinator::recordCkptFilename(CoordClient *client, const char *extraData)
     _numRestartFilenames = 0;
     _numCkptWorkers = 0;
 
-    //write information about last ckpt location on .restartdir for recovery purposes
-    ConfigInfo::writeRestartDir(std::string(ckptDir[ckptTypeInProgress].c_str()));
+    if(restartInfo == NULL){
+      restartInfo = new RestartInfo();
+    }
+
+    //update restart info with new checkpoint
+    restartInfo->update(ckptDir[ckptTypeInProgress], ckptTypeInProgress, getRealCurrTime());
+
+    //write new restartinfo
+    restartInfo->writeRestartInfo();
 
     // All the workers have checkpointed so now it is safe to reset this flag.
     workersRunningAndSuspendMsgSent = false;
@@ -1090,6 +1102,16 @@ getCurrTimestamp()
   JASSERT(clock_gettime(CLOCK_MONOTONIC, &value) == 0);
   nsecs = value.tv_sec*1000000000L + value.tv_nsec;
   return nsecs;
+}
+
+static uint64_t
+getRealCurrTime()
+{
+  struct timeval time;
+  uint64_t microsec = 0;
+  JASSERT(gettimeofday(&time, NULL) == 0);
+  microsec = time.tv_sec*1000000L + time.tv_usec;
+  return microsec;
 }
 
 

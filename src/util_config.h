@@ -7,7 +7,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-
+#include "constants.h"
 
 #define GLOBAL_CKPT_DIR_OPTION "global_ckpt_dir"
 #define LOCAL_CKPT_DIR_OPTION "local_ckpt_dir"
@@ -16,6 +16,7 @@
 #define LOCAL_CKPT_INT_OPTION "local_ckpt_interval"
 #define TEST_MODE_OPTION "test_mode"
 
+using namespace dmtcp;
 
 struct ConfigInfo {
 
@@ -30,8 +31,6 @@ public:
 
   ConfigInfo();
   void readConfigFromFile(std::string filename);
-  static void writeRestartDir(std::string val);
-  static std::string readRestartDir();
 };
 
 struct Topology {
@@ -46,6 +45,17 @@ public:
 
 };
 
+struct RestartInfo {
 
+public:
+  
+  string ckptDir[CKPT_GLOBAL+1];
+  uint64_t ckptTime[CKPT_GLOBAL+1];
+
+  RestartInfo();
+  void update(string ckptDir, int ckptType, uint64_t currTime);
+  void writeRestartInfo();
+  int readRestartInfo();
+};
 
 #endif //ifndef CONFIG_H

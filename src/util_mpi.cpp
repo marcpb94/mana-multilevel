@@ -106,20 +106,101 @@ UtilsMPI::getHostname(int test_mode)
   return hostName;
 }
 
+void
+UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
+  printf("Starting to perform partner copy...\n");
+  fflush(stdout);
+  
+  string partnerFilename = ckptFilename + "_partner";
+  int myPartner = partnerMap[_rank];
+  
+  int fd_p = open(partnerFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  int fd_m = open(ckptFilename.c_str(), O_RDONLY);
+  JASSERT(fd_p != -1 && fd_m != -1) (fd_p)(fd_m);
+  
+  struct stat sb;
+  JASSERT(fstat(fd_m, &sb) == 0);
+
+  off_t ckptSize = sb.st_size, partnerCkptSize;
+  off_t toSend = ckptSize, toRecv = 0;
+  char *buff = (char *)malloc(DATA_BLOCK_SIZE);
+
+  //decide send/recv order
+  if(_rank > myPartner){
+    //exchange ckpt file sizes
+    MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+    MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    toRecv = partnerCkptSize;
+    //send ckpt file
+    while (toSend > 0){
+      off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
+                           DATA_BLOCK_SIZE : toSend;
+
+      Util::readAll(fd_m, buff, sendSize);
+      MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+      toSend -= sendSize;
+    }
+    //receive partner copy
+    while(toRecv > 0){
+      off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
+                           DATA_BLOCK_SIZE : toRecv;
+
+      MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      Util::writeAll(fd_p, buff, recvSize);
+      toRecv -= recvSize;
+    }
+  }
+  else {
+    //exchange ckpt file sizes
+    MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    toRecv = partnerCkptSize;
+    MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+    //receive partner copy
+    while(toRecv > 0){
+      off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
+                           DATA_BLOCK_SIZE : toRecv;
+
+      MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      Util::writeAll(fd_p, buff, recvSize);
+      toRecv -= recvSize;
+    }
+    //send ckpt file
+    while (toSend > 0){
+      off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
+                           DATA_BLOCK_SIZE : toSend;
+
+      Util::readAll(fd_m, buff, sendSize);
+      MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+      toSend -= sendSize;
+    }
+  }
+
+  printf("Finished performing partner copy.\n");
+  fflush(stdout);
+
+  free(buff);
+  close(fd_p);
+  close(fd_m);
+}
+
+
 string
 UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
-  int rank = UtilsMPI::instance().getRank();
-  printf("Test UtilsMPI rank: %d\n", rank);
-  fflush(stdout);
-  std::string restartDir = ConfigInfo::readRestartDir();
-    if(!restartDir.empty()){
-      printf("Found .restartdir with ckpt location %s\n", restartDir.c_str());
-      fflush(stdout);
+    RestartInfo *restartInfo = new RestartInfo();
+    restartInfo->readRestartInfo();
+    string target = "";
+
+    /*
+    for(int i = 0; i <= CKPT_GLOBAL; i++){
+      printf("type: %d, dir: %s, time: %ld\n", i, restartInfo->ckptDir[i].c_str(), restartInfo->ckptTime[i]);
     }
-    else {
-      //else default to current directory
-      restartDir = "./";
-    }
-    return string(restartDir.c_str());
+    fflush(stdout);
+    */
+
+    //TODO: recovery prioritizing by time of checkpoint
+
+    JASSERT(!target.empty()).Text("Restart point not found.");
+
+    return target;
 }
 

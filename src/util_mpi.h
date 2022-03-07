@@ -7,8 +7,13 @@
 #include <fstream>
 #include <string>
 #include <mpi.h>
+#include <fcntl.h>
+#include "util.h"
 #include "util_config.h"
 #include "constants.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+
 
 using namespace dmtcp;
 
@@ -26,9 +31,9 @@ public:
   int getSize() const { return _size; }
   char* getHostname(int test_mode);
   void getSystemTopology(int test_mode, Topology **topo);
+  void performPartnerCopy(string ckptFilename, int *partnerMap);
   string recoverFromCrash(ConfigInfo *cfg);
   static UtilsMPI instance();
-
 };
 
 #endif //ifndef CONFIG_MPI_H
