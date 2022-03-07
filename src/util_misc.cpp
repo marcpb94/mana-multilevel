@@ -869,8 +869,6 @@ RestartInfo::RestartInfo(){
   }
 }
 
-//FIXME: currently does not care about types of checkpoint,
-// and can potentially bury higher level checkpoints with multiple lower types
 void
 RestartInfo::update(string ckpt_dir, int ckpt_type, uint64_t curr_time){
   ckptDir[ckpt_type] = ckpt_dir;
