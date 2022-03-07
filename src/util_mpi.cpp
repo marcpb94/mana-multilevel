@@ -184,11 +184,21 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
 }
 
 
+int
+UtilsMPI::checkCkptValid(int ckpt_type, string dir){
+  //TODO: we need some type of checksum
+  //from the file to truly check if it is valid
+  //TODO: also recover from partner if applicable
+  
+  return 1;
+}
+
 string
 UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
     RestartInfo *restartInfo = new RestartInfo();
     restartInfo->readRestartInfo();
     string target = "";
+    int i, found = 1, valid = 0, candidate;
 
     /*
     for(int i = 0; i <= CKPT_GLOBAL; i++){
@@ -197,9 +207,35 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
     fflush(stdout);
     */
 
-    //TODO: recovery prioritizing by time of checkpoint
+    //recovery prioritizing by time of checkpoint
+    while(found && !valid){
+      found = 0;
+      candidate = 0;
+      for(i = 0; i <= CKPT_GLOBAL; i++){
+        if(restartInfo->ckptTime[i] > 0 && (!found || 
+              restartInfo->ckptTime[i] > restartInfo->ckptTime[candidate])){
+        
+          //update candidate
+          candidate = i;
+          found = 1;
+        }
+      }
+      if(found){
+        //check if the checkpoint is actually valid
+        target = restartInfo->ckptDir[candidate];
+        valid = checkCkptValid(candidate, target);
+        if(!valid){
+          //if not valid, set time to zero to invalidate
+          //and loop again
+          restartInfo->ckptTime[candidate] = 0;
+        }
+      }
+    }
 
-    JASSERT(!target.empty()).Text("Restart point not found.");
+    JASSERT(found).Text("Restart point not found.");
+
+    printf("Selected checkpoint type %d with location %s\n", candidate, target.c_str());
+    fflush(stdout);
 
     return target;
 }

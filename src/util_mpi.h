@@ -32,6 +32,7 @@ public:
   char* getHostname(int test_mode);
   void getSystemTopology(int test_mode, Topology **topo);
   void performPartnerCopy(string ckptFilename, int *partnerMap);
+  int checkCkptValid(int ckpt_type, string dir);
   string recoverFromCrash(ConfigInfo *cfg);
   static UtilsMPI instance();
 };
