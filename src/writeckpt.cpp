@@ -38,6 +38,8 @@
 #include "shareddata.h"
 #include "util.h"
 #include "mtcp/mtcp_header.h"  // MtcpHdr
+#include <openssl/md5.h>
+
 
 #define HUGEPAGES
 
@@ -57,6 +59,10 @@ using namespace dmtcp;
 EXTERNC int dmtcp_infiniband_enabled(void) __attribute__((weak));
 
 static bool skipWritingTextSegments = false;
+
+//MD5 checksum
+static MD5_CTX context;
+static unsigned char digest[16];
 
 // FIXME:  Why do we create two global variable here?  They should at least
 // be static (file-private), and preferably local to a function.
@@ -138,7 +144,7 @@ int is_hugepage(void *startAddr) {
  *
  *****************************************************************************/
 void
-mtcp_writememoryareas(int fd)
+mtcp_writememoryareas(int fd, int fd_chksum)
 {
   Area area;
 
@@ -150,6 +156,9 @@ mtcp_writememoryareas(int fd)
   }
 
   JTRACE("Performing checkpoint.");
+
+  //re-initialize MD5 context
+  MD5_Init(&context);
 
   // Here we want to sync the shared memory pages with the backup files
   // FIXME: Why do we need this?
@@ -366,8 +375,13 @@ mtcp_writememoryareas(int fd)
   area.size = -1; // End of data
   Util::writeAll(fd, &area, sizeof(area));
 
+  MD5_Final(digest, &context);
+
+  Util::writeAll(fd_chksum, digest, 16);
+
   /* That's all folks */
   JASSERT(_real_close(fd) == 0);
+  JASSERT(_real_close(fd_chksum) == 0);
 }
 
 static void
@@ -542,6 +556,9 @@ writememoryarea(int fd, Area *area, int stack_was_seen)
     } else {
       Util::writeAll(fd, area, sizeof(*area));
       Util::writeAll(fd, area->addr, area->size);
+
+      //update context with new region data
+      MD5_Update(&context, area->addr, area->size);
     }
   }
 }

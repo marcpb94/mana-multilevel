@@ -68,7 +68,7 @@ static int forked_ckpt_status = -1;
 static pid_t ckpt_extcomp_child_pid = -1;
 static struct sigaction saved_sigchld_action;
 static int open_ckpt_to_write(int fd, int pipe_fds[2], char **extcomp_args);
-void mtcp_writememoryareas(int fd) __attribute__((weak));
+void mtcp_writememoryareas(int fd, int fd_chksum) __attribute__((weak));
 
 /* We handle SIGCHLD while checkpointing. */
 static void
@@ -424,6 +424,8 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
 {
   string ckptFilename = ProcessInfo::instance().getCkptFilename();
   string tempCkptFilename = ckptFilename;
+  string checksumFilename = ckptFilename + "_md5chksum";
+  string checksumFilenameTmp = checksumFilename + ".temp";
 
   tempCkptFilename += ".temp";
 
@@ -440,10 +442,13 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
    */
   bool use_compression = false;
   int fdCkptFileOnDisk = -1;
-  int fd = -1;
+  int fd = -1, fd_chksum = -1;
 
   fd = perform_open_ckpt_image_fd(tempCkptFilename.c_str(), &use_compression,
                                   &fdCkptFileOnDisk);
+
+  fd_chksum = _real_open(checksumFilenameTmp.c_str(),  O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  JASSERT(fd_chksum >= 0);
   JASSERT(fdCkptFileOnDisk >= 0);
   JASSERT(use_compression || fd == fdCkptFileOnDisk);
 
@@ -454,7 +459,7 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
   JASSERT(Util::writeAll(fd, mtcpHdr, mtcpHdrLen) == (ssize_t)mtcpHdrLen);
 
   JTRACE("MTCP is about to write checkpoint image.")(ckptFilename);
-  mtcp_writememoryareas(fd);
+  mtcp_writememoryareas(fd, fd_chksum);
 
   if (use_compression) {
     /* In perform_open_ckpt_image_fd(), we set SIGCHLD to our own handler.
@@ -474,6 +479,7 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
    * So, gzip process can continue to write to file even after renaming.
    */
   JASSERT(rename(tempCkptFilename.c_str(), ckptFilename.c_str()) == 0);
+  JASSERT(rename(checksumFilenameTmp.c_str(), checksumFilename.c_str()) == 0);
 
   if (forked_ckpt_status == FORKED_CKPT_CHILD) {
     // Use _exit() instead of exit() to avoid popping atexit() handlers

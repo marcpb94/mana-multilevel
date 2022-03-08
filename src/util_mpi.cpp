@@ -112,12 +112,18 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   fflush(stdout);
   
   string partnerFilename = ckptFilename + "_partner";
+  string partnerChksum = partnerFilename + "_md5chksum";
+  string ckptChksum = ckptFilename + "_md5chksum";
   int myPartner = partnerMap[_rank];
   
   int fd_p = open(partnerFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   int fd_m = open(ckptFilename.c_str(), O_RDONLY);
   JASSERT(fd_p != -1 && fd_m != -1) (fd_p)(fd_m);
   
+  int fd_p_chksum = open(partnerChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  int fd_m_chksum = open(ckptChksum.c_str(), O_RDONLY);
+  JASSERT(fd_p_chksum != -1 && fd_m_chksum != -1) (fd_p)(fd_m);
+
   struct stat sb;
   JASSERT(fstat(fd_m, &sb) == 0);
 
@@ -149,6 +155,12 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
       Util::writeAll(fd_p, buff, recvSize);
       toRecv -= recvSize;
     }
+    //send checksum
+    Util::readAll(fd_m_chksum, buff, 16);
+    MPI_Send(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+    //receive checksum
+    MPI_Recv(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    Util::writeAll(fd_p_chksum, buff, 16);
   }
   else {
     //exchange ckpt file sizes
@@ -173,14 +185,22 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
       MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
       toSend -= sendSize;
     }
+    //receive checksum
+    MPI_Recv(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    Util::writeAll(fd_p_chksum, buff, 16);
+    //send checksum
+    Util::readAll(fd_m_chksum, buff, 16);
+    MPI_Send(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
   }
 
   printf("Finished performing partner copy.\n");
   fflush(stdout);
 
   free(buff);
-  close(fd_p);
-  close(fd_m);
+  JASSERT(close(fd_p) == 0);
+  JASSERT(close(fd_m) == 0);
+  JASSERT(close(fd_p_chksum) == 0);
+  JASSERT(close(fd_m_chksum) == 0);
 }
 
 
