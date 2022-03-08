@@ -13,7 +13,8 @@
 #include "constants.h"
 #include <sys/types.h>
 #include <sys/stat.h>
-
+#include <openssl/md5.h>
+#include "dirent.h"
 
 using namespace dmtcp;
 

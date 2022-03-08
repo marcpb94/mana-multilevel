@@ -203,14 +203,57 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   JASSERT(close(fd_m_chksum) == 0);
 }
 
+char*
+findCkptFilename(string ckpt_dir, string patternEnd){
+  int dir_found = 0;  
+  DIR *dir;
+  struct dirent *entry;
+
+  dir = opendir(ckpt_dir.c_str());
+  if (dir == NULL) return 0;
+  while ((entry = readdir(dir)) != NULL){
+    
+  }
+
+  return NULL;
+}
 
 int
-UtilsMPI::checkCkptValid(int ckpt_type, string dir){
-  //TODO: we need some type of checksum
-  //from the file to truly check if it is valid
-  //TODO: also recover from partner if applicable
-  
+isCkptValid(char *filename){
+  MD5_CTX context;
+  unsigned char digest[16];
+  string ckptFile = filename;
+  string ckptChecksum = ckptFile + "_md5chksum";
+
   return 1;
+}
+
+int
+UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir){
+  string real_dir = ckpt_dir + "/ckpt_rank_";
+  real_dir += _rank + "/";
+  int success = 0, allsuccess;  
+  string ckptFilename;
+
+  try {
+    char *filename = findCkptFilename(real_dir, ".dmtcp");
+    if(filename != NULL && isCkptValid(filename)){
+        success = 1;
+    }
+    else {
+      if(ckpt_type == CKPT_PARTNER){
+        //TODO: also recover from partner if possible
+
+      }
+    }
+  }
+  catch (...){} //survive unexpected exceptions and assume failure
+
+  //aggregate operation status from all ranks
+  MPI_Allreduce(&success, &allsuccess, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+
+  // only return success if all ranks are successful
+  return allsuccess;
 }
 
 string
