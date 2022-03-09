@@ -117,12 +117,16 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   int myPartner = partnerMap[_rank];
   
   int fd_p = open(partnerFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  JASSERT(fd_p != -1);
+
   int fd_m = open(ckptFilename.c_str(), O_RDONLY);
-  JASSERT(fd_p != -1 && fd_m != -1) (fd_p)(fd_m);
+  JASSERT(fd_m != -1);
   
   int fd_p_chksum = open(partnerChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  JASSERT(fd_p_chksum != -1);
+
   int fd_m_chksum = open(ckptChksum.c_str(), O_RDONLY);
-  JASSERT(fd_p_chksum != -1 && fd_m_chksum != -1) (fd_p)(fd_m);
+  JASSERT(fd_m_chksum != -1);
 
   struct stat sb;
   JASSERT(fstat(fd_m, &sb) == 0);
@@ -203,54 +207,186 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   JASSERT(close(fd_m_chksum) == 0);
 }
 
-char*
+const char*
 findCkptFilename(string ckpt_dir, string patternEnd){
   int dir_found = 0;  
   DIR *dir;
   struct dirent *entry;
+  string result = ckpt_dir;
 
   dir = opendir(ckpt_dir.c_str());
+  printf("  Checkpoint directory %s not found.\n", ckpt_dir.c_str());
   if (dir == NULL) return 0;
   while ((entry = readdir(dir)) != NULL){
-    
+    if(Util::strStartsWith(entry->d_name, "ckpt") &&
+            Util::strEndsWith(entry->d_name, patternEnd.c_str())){
+      result.append("/").append(entry->d_name);
+      dir_found = 1;
+      break;
+    }
   }
+  return (dir_found) ? result.c_str() : NULL;
+}
 
-  return NULL;
+
+/**
+ *
+ * Fake reading of ProcessInfo data for accessing later data
+ * to avoid modifying the underlying process and accidentally
+ * open the gates of hell.
+ *
+ */
+void
+dummySerialize(jalib::JBinarySerializer &o){
+  uint64_t dummy64;
+  uint32_t dummy32;
+  pid_t dummyPid;
+  UniquePid dummyUPid;
+  string dummyStr;
+
+  o & dummy32;
+  o & dummy32 & dummyPid & dummyPid & dummyPid & dummyPid & dummyPid & dummy32;
+  o & dummyStr & dummyStr & dummyStr & dummyStr & dummyStr;
+  o & dummyUPid & dummyUPid;
+
+  //FIXME: finish reading
 }
 
 int
-isCkptValid(char *filename){
+readDmtcpHeader(int fd){
+  const size_t len = strlen(DMTCP_FILE_HEADER);
+  
+  jalib::JBinarySerializeReaderRaw rdr("", fd);
+
+  //careful now....
+  dummySerialize(rdr);
+
+  size_t numRead = len + rdr.bytes();
+  
+  // We must read in multiple of PAGE_SIZE
+  const ssize_t pagesize = Util::pageSize();
+  ssize_t remaining = pagesize - (numRead % pagesize);
+  char buf[remaining];
+
+  return (Util::readAll(fd, buf, remaining) == remaining);
+}
+
+int
+isCkptValid(const char *filename){
   MD5_CTX context;
-  unsigned char digest[16];
+  unsigned char digest[16], chksum_read[16];
   string ckptFile = filename;
   string ckptChecksum = ckptFile + "_md5chksum";
 
+  int fd = open(ckptFile.c_str(), O_RDONLY);
+  int fd_chksum = open(ckptChecksum.c_str(), O_RDONLY);
+  
+  if (fd == -1 || fd_chksum == -1){
+    //treat the absence or lack of ablity to open
+    //either of the two files as a failure
+    printf("  Checkpoint or checksum file missing.\n");
+    if(fd != -1) close(fd);
+    if(fd_chksum != -1) close(fd_chksum);
+    return 0;
+  }
+
+  //read checksum file
+  if(Util::readAll(fd_chksum, chksum_read, 16) != 16){
+    printf("  Checksum file is smaller than 16 bytes.\n");
+    close(fd); close (fd_chksum);
+    return 0;
+  }
+
+  //ignore DMTCP header
+  readDmtcpHeader(fd);
+
+  //read checkpoint file as pure data just to verify checksum
+  Area area;
+  size_t END_OF_CKPT = -1;
+  MD5_Init(&context);
+  while (Util::readAll(fd, &area, sizeof(area)) == sizeof(area)){
+    //if -1 size found, we are finished
+    if (area.size == END_OF_CKPT) break;
+
+    printf("Reading region of %lu bytes...\n", area.size);
+    fflush(stdout);
+
+    area.addr = (char *)malloc(area.size);
+
+    //read memory region
+    if(Util::writeAll(fd, area.addr, area.size) != (ssize_t)area.size){
+      printf("  Checkpoint file had less data than expected.\n");
+      close(fd); close (fd_chksum);
+      free(area.addr);
+      return 0;
+    }
+
+    //update md5 context
+    MD5_Update(&context, area.addr, area.size);
+
+    free(area.addr);
+  }
+
+  if(area.size != END_OF_CKPT){
+    printf("  Checkpoint file did not finish as expected.\n");
+    close(fd); close (fd_chksum);
+    return 0;
+  }
+
+  MD5_Final(digest, &context);
+ 
+  if(strncmp((char *)digest, (char *)chksum_read, 16) != 0){
+    printf("  Computed checksum does not match the checksum file contents.\n");
+    close(fd); close (fd_chksum);
+    return 0;
+  }
+
+  close(fd);
+  close(fd_chksum);
   return 1;
 }
 
+
+/**
+ *
+ * Asserting anything in this function and its 
+ * subfunctions is a bad idea, since crashing the
+ * application here defeats its purpose, as we 
+ * want to choose alternative checkpoint levels 
+ * if the the checkpoint being checked has any 
+ * issues.
+ *
+ */
 int
 UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir){
-  string real_dir = ckpt_dir + "/ckpt_rank_";
-  real_dir += _rank + "/";
+  string real_dir = ckpt_dir;
+  char *rankchar = (char *)malloc(32);
+  sprintf(rankchar, "/ckpt_rank_%d/", _rank);
+  real_dir += rankchar;
   int success = 0, allsuccess;  
   string ckptFilename;
 
   try {
-    char *filename = findCkptFilename(real_dir, ".dmtcp");
+    const char *filename = findCkptFilename(real_dir, ".dmtcp");
     if(filename != NULL && isCkptValid(filename)){
         success = 1;
     }
     else {
       if(ckpt_type == CKPT_PARTNER){
         //TODO: also recover from partner if possible
-
+        
       }
     }
   }
   catch (...){} //survive unexpected exceptions and assume failure
 
+  printf("Success of rank %d: %d\n", _rank, success);
+  fflush(stdout);
+
   //aggregate operation status from all ranks
   MPI_Allreduce(&success, &allsuccess, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+
+  free(rankchar);
 
   // only return success if all ranks are successful
   return allsuccess;
@@ -286,6 +422,7 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
       if(found){
         //check if the checkpoint is actually valid
         target = restartInfo->ckptDir[candidate];
+        printf("Checking checkpoint dir %s...\n", target.c_str());
         valid = checkCkptValid(candidate, target);
         if(!valid){
           //if not valid, set time to zero to invalidate

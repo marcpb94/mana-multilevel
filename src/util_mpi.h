@@ -2,6 +2,7 @@
 #define CONFIG_MPI_H
 
 #include "../jalib/jassert.h"
+#include "../jalib/jfilesystem.h"
 #include "../jalib/jconvert.h"
 #include <iostream>
 #include <fstream>
