@@ -209,23 +209,25 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
 
 const char*
 findCkptFilename(string ckpt_dir, string patternEnd){
-  int dir_found = 0;  
+  int file_found = 0;  
   DIR *dir;
   struct dirent *entry;
   string result = ckpt_dir;
 
   dir = opendir(ckpt_dir.c_str());
-  printf("  Checkpoint directory %s not found.\n", ckpt_dir.c_str());
-  if (dir == NULL) return 0;
+  if (dir == NULL) {
+    printf("  Checkpoint directory %s not found.\n", ckpt_dir.c_str());
+    return 0;
+  }
   while ((entry = readdir(dir)) != NULL){
     if(Util::strStartsWith(entry->d_name, "ckpt") &&
             Util::strEndsWith(entry->d_name, patternEnd.c_str())){
       result.append("/").append(entry->d_name);
-      dir_found = 1;
+      file_found = 1;
       break;
     }
   }
-  return (dir_found) ? result.c_str() : NULL;
+  return (file_found) ? result.c_str() : NULL;
 }
 
 
@@ -243,19 +245,39 @@ dummySerialize(jalib::JBinarySerializer &o){
   pid_t dummyPid;
   UniquePid dummyUPid;
   string dummyStr;
+  map<pid_t, UniquePid> dummyMap;
+
+  JSERIALIZE_ASSERT_POINT("ProcessInfo:");
 
   o & dummy32;
   o & dummy32 & dummyPid & dummyPid & dummyPid & dummyPid & dummyPid & dummy32;
   o & dummyStr & dummyStr & dummyStr & dummyStr & dummyStr;
   o & dummyUPid & dummyUPid;
+  o & dummy64 & dummy64
+    & dummy64 & dummy64;
+  o & dummyUPid & dummy32 & dummy32 & dummy32 & dummy32;
+  o & dummy64 & dummy64 & dummy64;
+  o & dummy64 & dummy64 & dummy64 & dummy64 & dummy64;
+  int i;
+  for (i = 0; i <= CKPT_GLOBAL; i++){
+    o & dummyStr & dummyStr & dummyStr;
+  }
+  o & dummyMap;
 
-  //FIXME: finish reading
+  JSERIALIZE_ASSERT_POINT("EOF");
 }
 
 int
 readDmtcpHeader(int fd){
   const size_t len = strlen(DMTCP_FILE_HEADER);
   
+  char *buff = (char *)malloc(len);
+  if(Util::readAll(fd, buff, len) != len){
+    free(buff);
+    return 0;
+  }
+  free(buff);
+
   jalib::JBinarySerializeReaderRaw rdr("", fd);
 
   //careful now....
@@ -272,7 +294,13 @@ readDmtcpHeader(int fd){
 }
 
 int
-isCkptValid(const char *filename){
+readMtcpHeader(int fd){
+  MtcpHeader mtcpHdr;
+  return (Util::readAll(fd, &mtcpHdr, sizeof(mtcpHdr)) == sizeof(mtcpHdr)); 
+}
+
+int
+UtilsMPI::isCkptValid(const char *filename){
   MD5_CTX context;
   unsigned char digest[16], chksum_read[16];
   string ckptFile = filename;
@@ -298,31 +326,90 @@ isCkptValid(const char *filename){
   }
 
   //ignore DMTCP header
-  readDmtcpHeader(fd);
+  if(!readDmtcpHeader(fd)){
+    printf("  Error reading DMTCP header.\n");
+    close(fd); close (fd_chksum);
+    return 0;
+  }
+
+  //ignore MTCP header
+  if(!readMtcpHeader(fd)){
+    printf("  Error reading MTCP header.\n");
+    close(fd); close (fd_chksum);
+    return 0;
+  }
 
   //read checkpoint file as pure data just to verify checksum
   Area area;
   size_t END_OF_CKPT = -1;
+  ssize_t bytes_read;
+  int skip_update;
+  int num_updates = 0;
   MD5_Init(&context);
   while (Util::readAll(fd, &area, sizeof(area)) == sizeof(area)){
+    skip_update = 0;
+
     //if -1 size found, we are finished
     if (area.size == END_OF_CKPT) break;
 
-    printf("Reading region of %lu bytes...\n", area.size);
-    fflush(stdout);
+    //printf("Reading region of %lu bytes...\n", area.size);
+    //fflush(stdout);
 
-    area.addr = (char *)malloc(area.size);
+    //printf("area name: %s\n", area.name);
+
+
+    //handle non rwx and anonymous pages
+    if (area.prot == 0 || (area.name[0] == '\0' &&
+          ((area.flags & MAP_ANONYMOUS) != 0) &&
+          ((area.flags & MAP_PRIVATE) != 0))){
+      if (area.properties == 0){
+        //some contents have been written
+        //read but ignore them
+        skip_update = 1;
+      }
+      else {
+        //zero page, skip
+        continue;
+      }
+    }
+
+    
+    if ((area.properties & DMTCP_SKIP_WRITING_TEXT_SEGMENTS) &&
+          (area.prot & PROT_EXEC)){
+       //skip text segment if applicable
+       continue;
+    }
 
     //read memory region
-    if(Util::writeAll(fd, area.addr, area.size) != (ssize_t)area.size){
-      printf("  Checkpoint file had less data than expected.\n");
+    area.addr = (char *)malloc(area.size);
+    if((bytes_read = Util::readAll(fd, area.addr, area.size)) != (ssize_t)area.size){
+      if(bytes_read == -1) {
+        printf("  Error reading memory region: %s\n", strerror(errno));
+      }
+      else {
+        printf("  Expected memory region of %lu bytes, got only %ld.\n", area.size, bytes_read);
+      }
       close(fd); close (fd_chksum);
       free(area.addr);
       return 0;
     }
 
-    //update md5 context
-    MD5_Update(&context, area.addr, area.size);
+    if(!skip_update){
+      //update md5 context
+      MD5_Update(&context, area.addr, area.size);
+
+      //testing
+      printf("Rank: %d, region name:%s, checksum(%d): ", _rank, area.name, num_updates);
+      MD5_Final(digest, &context);
+      for(int i = 0; i < 16; i++){
+        printf("%x", digest[i]);
+      }
+      printf("\n");
+      num_updates++;
+      
+      //TEST, REMOVE AFTERWARDS
+      MD5_Init(&context);
+    }
 
     free(area.addr);
   }
@@ -334,6 +421,17 @@ isCkptValid(const char *filename){
   }
 
   MD5_Final(digest, &context);
+
+  printf("Number of updates: %d\n", num_updates);
+  printf("Computed checksum: ");
+  for(int i = 0; i < 16; i++){
+    printf("%x", digest[i]);
+  }
+  printf("\nRead checksum: ");
+  for(int i = 0; i < 16; i++){
+    printf("%x", chksum_read[i]);
+  }
+  printf("\n");
  
   if(strncmp((char *)digest, (char *)chksum_read, 16) != 0){
     printf("  Computed checksum does not match the checksum file contents.\n");

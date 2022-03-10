@@ -4,6 +4,7 @@
 #include "../jalib/jassert.h"
 #include "../jalib/jfilesystem.h"
 #include "../jalib/jconvert.h"
+#include "../jalib/jserialize.h"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -14,8 +15,12 @@
 #include "constants.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <openssl/md5.h>
 #include "dirent.h"
+#include "uniquepid.h"
+#include "mtcp/mtcp_header.h"
+
 
 using namespace dmtcp;
 
@@ -35,6 +40,7 @@ public:
   void getSystemTopology(int test_mode, Topology **topo);
   void performPartnerCopy(string ckptFilename, int *partnerMap);
   int checkCkptValid(int ckpt_type, string dir);
+  int isCkptValid(const char *filename);
   string recoverFromCrash(ConfigInfo *cfg);
   static UtilsMPI instance();
 };

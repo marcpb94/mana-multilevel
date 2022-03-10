@@ -39,7 +39,7 @@
 #include "util.h"
 #include "mtcp/mtcp_header.h"  // MtcpHdr
 #include <openssl/md5.h>
-
+#include "util_mpi.h"
 
 #define HUGEPAGES
 
@@ -63,6 +63,7 @@ static bool skipWritingTextSegments = false;
 //MD5 checksum
 static MD5_CTX context;
 static unsigned char digest[16];
+static int num_updates = 0;
 
 // FIXME:  Why do we create two global variable here?  They should at least
 // be static (file-private), and preferably local to a function.
@@ -159,6 +160,7 @@ mtcp_writememoryareas(int fd, int fd_chksum)
 
   //re-initialize MD5 context
   MD5_Init(&context);
+  num_updates = 0;
 
   // Here we want to sync the shared memory pages with the backup files
   // FIXME: Why do we need this?
@@ -377,6 +379,8 @@ mtcp_writememoryareas(int fd, int fd_chksum)
 
   MD5_Final(digest, &context);
 
+  printf("Number of updates: %d\n", num_updates);
+
   Util::writeAll(fd_chksum, digest, 16);
 
   /* That's all folks */
@@ -479,7 +483,7 @@ mtcp_write_non_rwx_and_anonymous_pages(int fd, Area *orig_area)
 
     a.properties = is_zero ? DMTCP_ZERO_PAGE : 0;
     a.size = size;
-
+    
     Util::writeAll(fd, &a, sizeof(a));
     if (!is_zero) {
       Util::writeAll(fd, a.addr, a.size);
@@ -556,9 +560,22 @@ writememoryarea(int fd, Area *area, int stack_was_seen)
     } else {
       Util::writeAll(fd, area, sizeof(*area));
       Util::writeAll(fd, area->addr, area->size);
-
+   
       //update context with new region data
       MD5_Update(&context, area->addr, area->size);
+
+      //testing
+      int rank = UtilsMPI::instance().getRank();
+      printf("Rank: %d, checksum(%d): ", rank, num_updates);
+      MD5_Final(digest, &context);
+      for(int i = 0; i < 16; i++){
+        printf("%x", digest[i]);
+      }
+      printf("\n");
+      num_updates++;
+
+      //TEST, REMOVE AFTERWARDS
+      MD5_Init(&context);
     }
   }
 }
