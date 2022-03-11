@@ -106,6 +106,97 @@ UtilsMPI::getHostname(int test_mode)
   return hostName;
 }
 
+int
+UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
+  
+  printf("Rank %d: assisting recovery with partner copy...\n", _rank);
+  fflush(stdout);
+  
+  
+  string partnerCkptFile = ckptFilename + "_partner";
+  string partnerChksum = ckptFilename + "_partner_chksum";
+  int myPartner = partnerMap[_rank];
+  
+  int fd = open(partnerCkptFile.c_str(), O_RDONLY);
+  if(fd == -1) return 0;
+  
+  int fd_chksum = open(partnerChksum.c_str(), O_RDONLY);
+  if(fd_chksum == -1) return 0;
+
+  struct stat sb;
+  if(fstat(fd, &sb) == 0) return 0;
+  
+  off_t ckptSize = sb.st_size;
+  off_t toSend = ckptSize;
+  char *buff = (char *)malloc(DATA_BLOCK_SIZE);
+
+  //exchange ckpt file sizes
+  MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+  //send ckpt file
+  while(toSend > 0){
+    off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
+			  DATA_BLOCK_SIZE : toSend;
+
+    Util::readAll(fd, buff, sendSize);
+    MPI_Recv(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    toSend -= sendSize;
+  }
+  //send checksum
+  Util::readAll(fd_chksum, buff, 16);
+  MPI_Send(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+ 
+
+
+  free(buff);
+  close(fd);
+  close(fd_chksum);
+
+  return 1;
+}
+
+int
+UtilsMPI::recoverFromPartnerCopy(string ckptFilename, int *partnerMap){
+  
+  printf("Rank %d: recovering from partner...\n", _rank);
+  fflush(stdout);
+  
+  string ckptChksum = ckptFilename + "_md5chksum";
+  int myPartner = partnerMap[_rank];
+  
+  int fd = open(ckptFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  if(fd == -1) return 0;
+  
+  int fd_chksum = open(ckptChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  if(fd_chksum == -1) return 0;
+
+  off_t ckptSize;
+  off_t toRecv;
+  char *buff = (char *)malloc(DATA_BLOCK_SIZE);
+
+  //exchange ckpt file sizes
+  MPI_Recv(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  toRecv = ckptSize;
+  //receive ckpt file
+  while(toRecv > 0){
+    off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
+			  DATA_BLOCK_SIZE : toRecv;
+
+    MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    Util::writeAll(fd, buff, recvSize);
+    toRecv -= recvSize;
+  }
+  //receive checksum
+  MPI_Recv(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  Util::writeAll(fd_chksum, buff, 16);
+
+
+  free(buff);
+  close(fd);
+  close(fd_chksum);
+ 
+  return 1;
+}
+
 void
 UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   
@@ -239,8 +330,7 @@ findCkptFilename(string ckpt_dir, string patternEnd){
 /**
  *
  * Fake reading of ProcessInfo data for accessing later data
- * to avoid modifying the underlying process and accidentally
- * open the gates of hell.
+ * to avoid modifying the underlying process.
  *
  */
 void
@@ -477,23 +567,30 @@ UtilsMPI::isCkptValid(const char *filename){
  *
  */
 int
-UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir){
+UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
   string real_dir = ckpt_dir;
   char *rankchar = (char *)malloc(32);
   sprintf(rankchar, "/ckpt_rank_%d/", _rank);
   real_dir += rankchar;
-  int success = 0, allsuccess;  
+  int success = 0, allsuccess, partnerSuccess;
+  int partner = partnerMap[_rank]; 
   string ckptFilename;
 
   try {
     const char *filename = findCkptFilename(real_dir, ".dmtcp");
     if(filename != NULL && isCkptValid(filename)){
         success = 1;
+        if(ckpt_type == CKPT_PARTNER){
+          //TODO: assist partner if necessary
+          MPI_Sendrecv(&success, 1, MPI_INT, partner, 0, 
+             &partnerSuccess, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        }
     }
     else {
       if(ckpt_type == CKPT_PARTNER){
-        //TODO: also recover from partner if possible
-        
+        //TODO: recover from partner if possible
+        MPI_Sendrecv(&success, 1, MPI_INT, partner, 0, 
+             &partnerSuccess, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       }
     }
   }
@@ -514,7 +611,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir){
 string
 UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
     RestartInfo *restartInfo = new RestartInfo();
-    restartInfo->readRestartInfo();
+    Topology *topo;
     string target = "";
     int i, found = 1, valid = 0, candidate;
 
@@ -524,6 +621,12 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
     }
     fflush(stdout);
     */
+
+    //read restart information
+    restartInfo->readRestartInfo();
+
+    //get system topology
+    getSystemTopology(cfg->testMode, &topo);
 
     //recovery prioritizing by time of checkpoint
     while(found && !valid){
@@ -542,7 +645,7 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
         //check if the checkpoint is actually valid
         target = restartInfo->ckptDir[candidate];
         printf("Checking checkpoint dir %s...\n", target.c_str());
-        valid = checkCkptValid(candidate, target);
+        valid = checkCkptValid(candidate, target, topo->partnerMap);
         if(!valid){
           //if not valid, set time to zero to invalidate
           //and loop again
