@@ -1284,9 +1284,6 @@ DmtcpCoordinator::startCheckpoint()
   static bool sentIntentMsg = false;
   nextCkptBarrier = nextRestartBarrier = 0;
 
-  printf("Starting checkpoint of type %d\n", nextCkptType);
-  fflush(stdout);
-
   // When this gets called for the first time, we simply send the intent
   // msg and return. For the subsequent call to startCheckpoint(), which would
   // happen from processPreSuspendClientMsg(), we go ahead and do the
@@ -1302,6 +1299,9 @@ DmtcpCoordinator::startCheckpoint()
       return true; // Our caller should know that the checkpoint has begun.
     } // else fall through, and return 'false' (can't checkpoint now)
   }
+
+  printf("Starting checkpoint of type %d\n", nextCkptType);
+  fflush(stdout);
 
   uniqueCkptFilenames = false;
   sentIntentMsg = false; // Reset the intent msg for the subsequent call

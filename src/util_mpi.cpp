@@ -108,8 +108,11 @@ UtilsMPI::getHostname(int test_mode)
 
 void
 UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
-  printf("Starting to perform partner copy...\n");
-  fflush(stdout);
+  
+  if (_rank == 0){
+    printf("Performing partner copy...\n");
+    fflush(stdout);
+  }
   
   string partnerFilename = ckptFilename + "_partner";
   string partnerChksum = partnerFilename + "_md5chksum";
@@ -197,8 +200,10 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
     MPI_Send(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
   }
 
-  printf("Finished performing partner copy.\n");
-  fflush(stdout);
+  if (_rank == 0){
+    printf("Finished partner copy.\n");
+    fflush(stdout);
+  }
 
   free(buff);
   JASSERT(close(fd_p) == 0);
@@ -352,6 +357,9 @@ UtilsMPI::isCkptValid(const char *filename){
     //if -1 size found, we are finished
     if (area.size == END_OF_CKPT) break;
 
+    //update context with area info
+    MD5_Update(&context, &area, sizeof(area));
+
     //printf("Reading region of %lu bytes...\n", area.size);
     //fflush(stdout);
 
@@ -379,6 +387,14 @@ UtilsMPI::isCkptValid(const char *filename){
        //skip text segment if applicable
        continue;
     }
+   
+    //skip rw region of this library
+    if(Util::strEndsWith(area.name, "libdmtcp.so") &&
+            (area.prot & PROT_READ) && (area.prot & PROT_WRITE)){
+      
+      skip_update = 1;
+    }
+
 
     //read memory region
     area.addr = (char *)malloc(area.size);
@@ -398,17 +414,22 @@ UtilsMPI::isCkptValid(const char *filename){
       //update md5 context
       MD5_Update(&context, area.addr, area.size);
 
-      //testing
-      printf("Rank: %d, region name:%s, checksum(%d): ", _rank, area.name, num_updates);
-      MD5_Final(digest, &context);
-      for(int i = 0; i < 16; i++){
-        printf("%x", digest[i]);
-      }
-      printf("\n");
-      num_updates++;
+      //if (_rank == 0){
+        //testing
+      //  printf("Rank: %d, checksum(%d): ", _rank,  num_updates);
+      //  if(num_updates == 10){
+      //    printf("area name: %s, prot: %d\n", area.name, area.prot);
+      //  }
+      //  MD5_Final(digest, &context);
+      //  for(int i = 0; i < 16; i++){
+      //    printf("%x", digest[i]);
+      //  }
+      //  printf("\n");
+        num_updates++;
       
-      //TEST, REMOVE AFTERWARDS
-      MD5_Init(&context);
+        //TEST, REMOVE AFTERWARDS
+      //  MD5_Init(&context);
+      //}
     }
 
     free(area.addr);

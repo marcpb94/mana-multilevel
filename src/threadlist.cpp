@@ -514,7 +514,7 @@ checkpointhread(void *dummy)
    */
   while (1) {
 
-    printf("Waiting for checkpoint request...\n");
+    //printf("Waiting for checkpoint request...\n");
     /* Wait a while between writing checkpoint files */
     JTRACE("before DmtcpWorker::waitForCheckpointRequest()");
     DmtcpWorker::waitForCheckpointRequest();
@@ -559,9 +559,11 @@ checkpointhread(void *dummy)
     }
 
     resumeThreads();
-
-    printf("Checkpoint done.\n");
-    fflush(stdout);
+  
+    if (UtilsMPI::instance().getRank() == 0) {
+      printf("Checkpoint done.\n");
+      fflush(stdout);
+    }
   }
 
   return NULL;

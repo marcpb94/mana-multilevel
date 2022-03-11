@@ -379,7 +379,7 @@ mtcp_writememoryareas(int fd, int fd_chksum)
 
   MD5_Final(digest, &context);
 
-  printf("Number of updates: %d\n", num_updates);
+  //printf("Number of updates: %d\n", num_updates);
 
   Util::writeAll(fd_chksum, digest, 16);
 
@@ -485,6 +485,10 @@ mtcp_write_non_rwx_and_anonymous_pages(int fd, Area *orig_area)
     a.size = size;
     
     Util::writeAll(fd, &a, sizeof(a));
+
+    //update context with area info
+    MD5_Update(&context, &a, sizeof(a));
+
     if (!is_zero) {
       Util::writeAll(fd, a.addr, a.size);
     } else {
@@ -556,26 +560,43 @@ writememoryarea(int fd, Area *area, int stack_was_seen)
     if (skipWritingTextSegments && (area->prot & PROT_EXEC)) {
       area->properties |= DMTCP_SKIP_WRITING_TEXT_SEGMENTS;
       Util::writeAll(fd, area, sizeof(*area));
+
+      //update context with area info
+      MD5_Update(&context, area, sizeof(*area));
+
       JTRACE("Skipping over text segments") (area->name) ((void *)area->addr);
     } else {
+    
       Util::writeAll(fd, area, sizeof(*area));
+      
+      //update context with area info
+      MD5_Update(&context, area, sizeof(*area));
+
       Util::writeAll(fd, area->addr, area->size);
-   
-      //update context with new region data
-      MD5_Update(&context, area->addr, area->size);
+ 
+      //avoid performing checksum of rw region of this own library
+      //as it is changing as we execute code
+      if(!(Util::strEndsWith(area->name, "libdmtcp.so") &&
+            (area->prot & PROT_READ) && (area->prot & PROT_WRITE))){
 
-      //testing
-      int rank = UtilsMPI::instance().getRank();
-      printf("Rank: %d, checksum(%d): ", rank, num_updates);
-      MD5_Final(digest, &context);
-      for(int i = 0; i < 16; i++){
-        printf("%x", digest[i]);
+        //update context with new region data
+        MD5_Update(&context, area->addr, area->size);
+
+        //int rank = UtilsMPI::instance().getRank();
+        //testing
+        //if (rank == 0){
+        //  printf("Rank: %d, checksum(%d): ", rank, num_updates);
+        //  MD5_Final(digest, &context);
+        //  for(int i = 0; i < 16; i++){
+        //    printf("%x", digest[i]);
+        //  }
+        //  printf("\n");
+        //  num_updates++;
+
+          //TEST, REMOVE AFTERWARDS
+        //  MD5_Init(&context);
+        //}
       }
-      printf("\n");
-      num_updates++;
-
-      //TEST, REMOVE AFTERWARDS
-      MD5_Init(&context);
     }
   }
 }

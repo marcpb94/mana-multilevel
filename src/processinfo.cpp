@@ -474,7 +474,7 @@ ProcessInfo::updateCkptDirFileSubdir(string newCkptDir)
   if (ckptDir.empty()) {
     const char *ckpt_env = (_ckptType == CKPT_GLOBAL) ? ENV_VAR_GLOBAL_CKPT_DIR : ENV_VAR_LOCAL_CKPT_DIR;
     const char *dir = getenv(ckpt_env);
-    printf("dir: %s\n", dir);
+    //printf("dir: %s\n", dir);
     if (dir == NULL) {
       JASSERT(false).Text("Checkpoint env var not defined.");
     }
@@ -501,7 +501,7 @@ ProcessInfo::updateCkptDirFileSubdir(string newCkptDir)
   ckptFileName = o.str() + CKPT_FILE_SUFFIX;
   ckptFilesSubDir = o.str() + CKPT_FILES_SUBDIR_SUFFIX;
 
-  printf("%s\n%s\n", ckptFileName.c_str(), ckptFilesSubDir.c_str());
+  //printf("%s\n%s\n", ckptFileName.c_str(), ckptFilesSubDir.c_str());
 
   _ckptDir[_ckptType] = ckptDir;
   _ckptFileName[_ckptType] = ckptFileName;

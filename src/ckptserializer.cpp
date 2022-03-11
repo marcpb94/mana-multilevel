@@ -407,7 +407,9 @@ CkptSerializer::createCkptDir()
 {
   string ckptDir = ProcessInfo::instance().getCkptDir();
 
-  printf("Performing checkpoint on dir: %s\n", ckptDir.c_str());
+  if(UtilsMPI::instance().getRank() == 0){
+    printf("Performing checkpoint on dir: %s\n", ckptDir.c_str());
+  }
 
   JASSERT(!ckptDir.empty());
   JASSERT(mkdir(ckptDir.c_str(), S_IRWXU) == 0 || errno == EEXIST)
