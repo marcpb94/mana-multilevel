@@ -558,12 +558,12 @@ checkpointhread(void *dummy)
       CkptSerializer::performPartnerCopy();
     }
 
-    resumeThreads();
-  
     if (UtilsMPI::instance().getRank() == 0) {
       printf("Checkpoint done.\n");
       fflush(stdout);
     }
+
+    resumeThreads();
   }
 
   return NULL;

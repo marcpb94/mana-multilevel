@@ -933,6 +933,7 @@ main(int argc, char **argv)
     } else if (argc > 1 && s == "--config") {
       conf = ConfigInfo();
       conf.readConfigFromFile(std::string(argv[1]));
+      shift; shift;
     } else if (argc > 1 && (s == "--gdb")) {
       requestedDebugLevel = atoi(argv[1]);
       shift; shift;
@@ -1063,8 +1064,6 @@ main(int argc, char **argv)
             image_zero.append("/");
         }
         image_zero.append("ckpt_rank_0/");
-	printf("ckpt-restart=%s\n", image_zero.c_str());
-        fflush(stdout);
         DIR *dir;
         struct dirent *entry;
         bool success = false;

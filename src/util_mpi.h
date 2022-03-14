@@ -36,7 +36,7 @@ public:
   UtilsMPI();
   int getRank() const { return _rank; }
   int getSize() const { return _size; }
-  char* getHostname(int test_mode);
+  char* getHostName(int test_mode);
   void getSystemTopology(int test_mode, Topology **topo);
   void performPartnerCopy(string ckptFilename, int *partnerMap);
   int checkCkptValid(int ckpt_type, string dir, int *partnerMap);

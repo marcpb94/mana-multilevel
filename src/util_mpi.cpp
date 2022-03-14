@@ -28,7 +28,7 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   int mpi_size, mpi_rank;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-  hostname = UtilsMPI::instance().getHostname(test_mode);
+  hostname = getHostName(test_mode);
   num_nodes = 0;
   //allocate enough memory for all hostnames
   char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
@@ -92,11 +92,11 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
 }
 
 char *
-UtilsMPI::getHostname(int test_mode)
+UtilsMPI::getHostName(int test_mode)
 {
   char *hostName = (char *)malloc(HOSTNAME_MAXSIZE);
   if(!test_mode){
-    JASSERT(gethostname(hostName, sizeof hostName) == 0) (JASSERT_ERRNO);
+    JASSERT(gethostname(hostName, HOSTNAME_MAXSIZE) == 0) (JASSERT_ERRNO);
   }
   else {
     //fake node size for testing purposes
@@ -109,14 +109,14 @@ UtilsMPI::getHostname(int test_mode)
 int
 UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
   
-  printf("Rank %d: assisting recovery with partner copy...\n", _rank);
+  printf("Rank %d: performing recovery from partner rank %d...\n", _rank, partnerMap[_rank]);
   fflush(stdout);
   
   
-  string partnerCkptFile = ckptFilename + "_partner";
-  string partnerChksum = ckptFilename + "_partner_chksum";
+  string partnerCkptFile = ckptFilename;
+  string partnerChksum = ckptFilename + "_md5chksum";
   int myPartner = partnerMap[_rank];
-  
+ 
   int fd = open(partnerCkptFile.c_str(), O_RDONLY);
   if(fd == -1) return 0;
   
@@ -124,7 +124,7 @@ UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
   if(fd_chksum == -1) return 0;
 
   struct stat sb;
-  if(fstat(fd, &sb) == 0) return 0;
+  if(fstat(fd, &sb) != 0) return 0;
   
   off_t ckptSize = sb.st_size;
   off_t toSend = ckptSize;
@@ -138,7 +138,7 @@ UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
 			  DATA_BLOCK_SIZE : toSend;
 
     Util::readAll(fd, buff, sendSize);
-    MPI_Recv(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
     toSend -= sendSize;
   }
   //send checksum
@@ -157,7 +157,7 @@ UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
 int
 UtilsMPI::recoverFromPartnerCopy(string ckptFilename, int *partnerMap){
   
-  printf("Rank %d: recovering from partner...\n", _rank);
+  printf("Rank %d: recovering from partner rank %d...\n", _rank, partnerMap[_rank]);
   fflush(stdout);
   
   string ckptChksum = ckptFilename + "_md5chksum";
@@ -303,13 +303,12 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   JASSERT(close(fd_m_chksum) == 0);
 }
 
-const char*
+char*
 findCkptFilename(string ckpt_dir, string patternEnd){
   int file_found = 0;  
   DIR *dir;
   struct dirent *entry;
-  string result = ckpt_dir;
-
+  char *result = (char *)malloc(1024);
   dir = opendir(ckpt_dir.c_str());
   if (dir == NULL) {
     printf("  Checkpoint directory %s not found.\n", ckpt_dir.c_str());
@@ -318,12 +317,14 @@ findCkptFilename(string ckpt_dir, string patternEnd){
   while ((entry = readdir(dir)) != NULL){
     if(Util::strStartsWith(entry->d_name, "ckpt") &&
             Util::strEndsWith(entry->d_name, patternEnd.c_str())){
-      result.append("/").append(entry->d_name);
+      sprintf(result, "%s/%s", ckpt_dir.c_str(), entry->d_name);
       file_found = 1;
       break;
     }
   }
-  return (file_found) ? result.c_str() : NULL;
+  if(!file_found) free(result);
+
+  return (file_found) ? result : NULL;
 }
 
 
@@ -533,19 +534,19 @@ UtilsMPI::isCkptValid(const char *filename){
 
   MD5_Final(digest, &context);
 
-  printf("Number of updates: %d\n", num_updates);
-  printf("Computed checksum: ");
+  //printf("Number of updates: %d\n", num_updates);
+  printf("Rank %d: computed checksum: ", _rank);
   for(int i = 0; i < 16; i++){
     printf("%x", digest[i]);
   }
-  printf("\nRead checksum: ");
+  printf("\nRank %d: read checksum: ", _rank);
   for(int i = 0; i < 16; i++){
     printf("%x", chksum_read[i]);
   }
   printf("\n");
  
   if(strncmp((char *)digest, (char *)chksum_read, 16) != 0){
-    printf("  Computed checksum does not match the checksum file contents.\n");
+    printf("  Rank %d: Computed checksum does not match the checksum file contents.\n", _rank);
     close(fd); close (fd_chksum);
     return 0;
   }
@@ -577,24 +578,100 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
   string ckptFilename;
 
   try {
-    const char *filename = findCkptFilename(real_dir, ".dmtcp");
+    char *filename = findCkptFilename(real_dir, ".dmtcp");
     if(filename != NULL && isCkptValid(filename)){
         success = 1;
         if(ckpt_type == CKPT_PARTNER){
-          //TODO: assist partner if necessary
+          //assist partner if necessary
           MPI_Sendrecv(&success, 1, MPI_INT, partner, 0, 
              &partnerSuccess, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          if(!partnerSuccess){
+            //check if our partner ckpt is valid
+            printf("Rank %d: Partner rank %d requested assist with partner copy.\n", _rank, partner);
+            fflush(stdout);
+            int partnerCkptValid = 0, placeholder;
+            char *partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
+            if(partnerCkpt != NULL){
+              partnerCkptValid = isCkptValid(partnerCkpt);
+            }
+            if(!partnerCkptValid){
+              printf("Rank %d: Partner copy ckpt not valid.\n", _rank);
+              fflush(stdout);
+            }
+            //send help response to partner
+            MPI_Sendrecv(&partnerCkptValid, 1, MPI_INT, partner, 0,
+                 &placeholder, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            if(partnerCkptValid){
+              //assist
+              if(!assistPartnerCopy(partnerCkpt, partnerMap)){
+                printf("Rank %d: error while assisting rank %d with partner copy\n", _rank, partner);
+                fflush(stdout);
+              }
+            }
+            if(partnerCkpt != NULL) free(partnerCkpt);
+          }
         }
     }
     else {
       if(ckpt_type == CKPT_PARTNER){
-        //TODO: recover from partner if possible
+        //recover from partner if possible
+        printf("Rank %d: Requesting recovery with partner rank %d\n", _rank, partner);
         MPI_Sendrecv(&success, 1, MPI_INT, partner, 0, 
              &partnerSuccess, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        int partnerCkptValid = 0, myCkptValid = 0;
+        char *partnerCkpt = NULL;
+        if(!partnerSuccess){
+          printf("Rank %d: Partner rank %d requested assist with partner copy.\n", _rank, partner);
+          fflush(stdout);
+          partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
+          if(partnerCkpt != NULL){
+            partnerCkptValid = isCkptValid(partnerCkpt);
+          }
+          if(!partnerCkptValid){
+            printf("Rank %d: Partner copy ckpt not valid.\n", _rank);
+            fflush(stdout);
+          }
+        }
+        //send/recv help response to partner
+        MPI_Sendrecv(&partnerCkptValid, 1, MPI_INT, partner, 0,
+                 &myCkptValid, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        if(myCkptValid && (partnerSuccess || partnerCkptValid)){
+          int ret;
+          string fileCkpt;
+          if(filename == NULL){
+            //if file not found, construct ckpt file
+            filename = (char *)malloc(1024);
+            sprintf(filename, "%s/ckptzRestored.dmtcp", real_dir.c_str());
+          }
+          if(_rank > partner){
+            ret = recoverFromPartnerCopy(filename, partnerMap);
+            if(!partnerSuccess){
+              assistPartnerCopy(partnerCkpt, partnerMap);
+            }
+          }
+          else {
+            if(!partnerSuccess){
+              assistPartnerCopy(partnerCkpt, partnerMap);
+            }
+            ret = recoverFromPartnerCopy(filename, partnerMap);
+          }
+          //verify ckpt
+          if (ret){
+            success = isCkptValid(filename);
+          }
+          if(!ret || !success){
+            printf("Rank %d: Partner ckpt transmission was not successful or ckpt is corrupt.\n", _rank);
+            fflush(stdout);
+          }
+        }
+        if(partnerCkpt != NULL) free(partnerCkpt);
       }
     }
+    if(filename != NULL) free(filename);
   }
-  catch (...){} //survive unexpected exceptions and assume failure
+  catch (std::exception &e){ //survive unexpected exceptions and assume failure
+     printf("Rank %d: An exception occurred(%s).\n", _rank, e.what());
+  }
 
   printf("Success of rank %d: %d\n", _rank, success);
   fflush(stdout);
@@ -644,7 +721,10 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
       if(found){
         //check if the checkpoint is actually valid
         target = restartInfo->ckptDir[candidate];
-        printf("Checking checkpoint dir %s...\n", target.c_str());
+        if (_rank == 0){
+          printf("Checking checkpoint dir %s...\n", target.c_str());
+          fflush(stdout);
+        }
         valid = checkCkptValid(candidate, target, topo->partnerMap);
         if(!valid){
           //if not valid, set time to zero to invalidate
@@ -656,8 +736,10 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
 
     JASSERT(found).Text("Restart point not found.");
 
-    printf("Selected checkpoint type %d with location %s\n", candidate, target.c_str());
-    fflush(stdout);
+    if(_rank == 0){
+      printf("Selected checkpoint type %d with location %s\n", candidate, target.c_str());
+      fflush(stdout);
+    }
 
     return target;
 }
