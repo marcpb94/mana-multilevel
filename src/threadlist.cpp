@@ -29,6 +29,7 @@
 #include "uniquepid.h"
 #include "util.h"
 #include "util_mpi.h"
+#include <sys/time.h>
 
 // Eventually, we may move this macro to config.h.in, but it doesn't currently
 // interfere with ordinary DMTCP.
@@ -412,6 +413,17 @@ prepareMtcpHeader(MtcpHeader *mtcpHdr)
   mtcpHdr->myinfo_gs = myinfo_gs;
 }
 
+static uint64_t
+getRealCurrTime()
+{
+  struct timeval time;
+  uint64_t microsec = 0;
+  JASSERT(gettimeofday(&time, NULL) == 0);
+  microsec = time.tv_sec*1000000L + time.tv_usec;
+  return microsec;
+}
+
+
 /*************************************************************************
  *
  *  Write checkpoint image
@@ -519,6 +531,8 @@ checkpointhread(void *dummy)
     JTRACE("before DmtcpWorker::waitForCheckpointRequest()");
     DmtcpWorker::waitForCheckpointRequest();
 
+    uint64_t start_time = getRealCurrTime();
+
     restoreInProgress = false;
 
     //printf("Suspending threads...\n");
@@ -554,12 +568,22 @@ checkpointhread(void *dummy)
     }
 
     //post-processing if needed by the checkpoint type
-    if(ProcessInfo::instance().getCkptType() == CKPT_PARTNER){
+    int ckpt_type = ProcessInfo::instance().getCkptType();
+    if(ckpt_type == CKPT_PARTNER){
+      uint64_t post_start = getRealCurrTime();
       CkptSerializer::performPartnerCopy();
+      uint64_t post_time = (getRealCurrTime() - post_start)/1000;
+      double post_time_sec = ((double)post_time)/1000;
+      if(UtilsMPI::instance().getRank() == 0){
+        printf("Post-processing took %.3f seconds.\n", post_time_sec);
+      }
     }
 
+    uint64_t ckpt_time_ms = (getRealCurrTime() - start_time)/1000;
+    double time_sec = ((double)ckpt_time_ms)/1000;
+
     if (UtilsMPI::instance().getRank() == 0) {
-      printf("Checkpoint done.\n");
+      printf("Checkpoint of type %d done in %.3f seconds.\n", ckpt_type, time_sec);
       fflush(stdout);
     }
 
