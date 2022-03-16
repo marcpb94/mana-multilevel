@@ -109,7 +109,7 @@ UtilsMPI::getHostName(int test_mode)
 int
 UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
   
-  printf("Rank %d: performing recovery from partner rank %d...\n", _rank, partnerMap[_rank]);
+  printf("Rank %d: performing recovery for partner rank %d...\n", _rank, partnerMap[_rank]);
   fflush(stdout);
   
   
@@ -227,76 +227,54 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
 
   off_t ckptSize = sb.st_size, partnerCkptSize;
   off_t toSend = ckptSize, toRecv = 0;
-  char *buff = (char *)malloc(DATA_BLOCK_SIZE);
+  char *buffRecv = (char *)malloc(DATA_BLOCK_SIZE);
+  char *buffSend = (char *)malloc(DATA_BLOCK_SIZE);
+  MPI_Request req;
 
-  //decide send/recv order
-  if(_rank > myPartner){
-    //exchange ckpt file sizes
-    MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-    MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    toRecv = partnerCkptSize;
-    //send ckpt file
-    while (toSend > 0){
-      off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
-                           DATA_BLOCK_SIZE : toSend;
 
-      Util::readAll(fd_m, buff, sendSize);
-      MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-      toSend -= sendSize;
+  //exchange ckpt file sizes
+  MPI_Isend(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, &req);
+  MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Wait(&req, MPI_STATUS_IGNORE);
+
+  toRecv = partnerCkptSize;
+  //send/recv ckpt file
+  while (toSend > 0 || toRecv > 0){
+    off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
+                         DATA_BLOCK_SIZE : toSend;
+
+    off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
+                         DATA_BLOCK_SIZE : toRecv;
+
+    if (sendSize > 0) {
+      Util::readAll(fd_m, buffSend, sendSize);
+      MPI_Isend(buffSend, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, &req);
     }
-    //receive partner copy
-    while(toRecv > 0){
-      off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
-                           DATA_BLOCK_SIZE : toRecv;
-
-      MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      Util::writeAll(fd_p, buff, recvSize);
-      toRecv -= recvSize;
+    if(recvSize > 0){
+      MPI_Recv(buffRecv, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      Util::writeAll(fd_p, buffRecv, recvSize);
     }
-    //send checksum
-    Util::readAll(fd_m_chksum, buff, 16);
-    MPI_Send(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-    //receive checksum
-    MPI_Recv(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    Util::writeAll(fd_p_chksum, buff, 16);
+    if(sendSize > 0){
+      MPI_Wait(&req, MPI_STATUS_IGNORE);
+    }
+      
+    toSend -= sendSize;
+    toRecv -= recvSize;
   }
-  else {
-    //exchange ckpt file sizes
-    MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    toRecv = partnerCkptSize;
-    MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-    //receive partner copy
-    while(toRecv > 0){
-      off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
-                           DATA_BLOCK_SIZE : toRecv;
 
-      MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      Util::writeAll(fd_p, buff, recvSize);
-      toRecv -= recvSize;
-    }
-    //send ckpt file
-    while (toSend > 0){
-      off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
-                           DATA_BLOCK_SIZE : toSend;
-
-      Util::readAll(fd_m, buff, sendSize);
-      MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-      toSend -= sendSize;
-    }
-    //receive checksum
-    MPI_Recv(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    Util::writeAll(fd_p_chksum, buff, 16);
-    //send checksum
-    Util::readAll(fd_m_chksum, buff, 16);
-    MPI_Send(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
-  }
+  Util::readAll(fd_m_chksum, buffSend, 16);
+  MPI_Isend(buffSend, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, &req);
+  MPI_Recv(buffRecv, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  Util::writeAll(fd_p_chksum, buffRecv, 16);
+  MPI_Wait(&req, MPI_STATUS_IGNORE);
 
   if (_rank == 0){
     printf("Finished partner copy.\n");
     fflush(stdout);
   }
 
-  free(buff);
+  free(buffSend);
+  free(buffRecv);
   JASSERT(close(fd_p) == 0);
   JASSERT(close(fd_m) == 0);
   JASSERT(close(fd_p_chksum) == 0);
