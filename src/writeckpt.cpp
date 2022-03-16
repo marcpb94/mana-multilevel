@@ -63,7 +63,10 @@ static bool skipWritingTextSegments = false;
 //MD5 checksum
 static MD5_CTX context;
 static unsigned char digest[16];
-static int num_updates = 0;
+static uint64_t num_updates = 0;
+
+//fixed allocation for memcpy
+static char mem_tmp[MEM_TMP_SIZE];
 
 // FIXME:  Why do we create two global variable here?  They should at least
 // be static (file-private), and preferably local to a function.
@@ -322,6 +325,7 @@ mtcp_writememoryareas(int fd, int fd_chksum)
       area.properties |= DMTCP_ZERO_PAGE;
       area.flags = MAP_PRIVATE | MAP_ANONYMOUS;
       Util::writeAll(fd, &area, sizeof(area));
+      MD5_Update(&context, &area, sizeof(area));
       continue;
     } else if (Util::isIBShmArea(area)) {
       // TODO: Don't checkpoint infiniband shared area for now.
@@ -490,7 +494,18 @@ mtcp_write_non_rwx_and_anonymous_pages(int fd, Area *orig_area)
     MD5_Update(&context, &a, sizeof(a));
 
     if (!is_zero) {
-      Util::writeAll(fd, a.addr, a.size);
+      uint64_t toCopy = a.size;
+      while (toCopy > 0){
+        uint64_t chunkSize = (toCopy > MEM_TMP_SIZE) ?
+                           MEM_TMP_SIZE : toCopy;
+       
+        //Move memory region data to a fixed location
+        //to avoid modification while executing 
+        memcpy(mem_tmp, a.addr + (a.size-toCopy), chunkSize);
+        Util::writeAll(fd, mem_tmp, chunkSize);
+        MD5_Update(&context, mem_tmp, chunkSize);
+        toCopy -= chunkSize;
+      }
     } else {
       if (madvise(a.addr, a.size, MADV_DONTNEED) == -1) {
         JNOTE("error doing madvise(..., MADV_DONTNEED)")
@@ -572,30 +587,17 @@ writememoryarea(int fd, Area *area, int stack_was_seen)
       //update context with area info
       MD5_Update(&context, area, sizeof(*area));
 
-      Util::writeAll(fd, area->addr, area->size);
- 
-      //avoid performing checksum of rw region of this own library
-      //as it is changing as we execute code
-      if(!(Util::strEndsWith(area->name, "libdmtcp.so") &&
-            (area->prot & PROT_READ) && (area->prot & PROT_WRITE))){
+      uint64_t toCopy = area->size;
+      while (toCopy > 0){
+        uint64_t chunkSize = (toCopy > MEM_TMP_SIZE) ? 
+                           MEM_TMP_SIZE : toCopy;
 
-        //update context with new region data
-        MD5_Update(&context, area->addr, area->size);
-
-        //int rank = UtilsMPI::instance().getRank();
-        //testing
-        //if (rank == 0){
-        //  printf("Rank: %d, checksum(%d): ", rank, num_updates);
-        //  MD5_Final(digest, &context);
-        //  for(int i = 0; i < 16; i++){
-        //    printf("%x", digest[i]);
-        //  }
-        //  printf("\n");
-        //  num_updates++;
-
-          //TEST, REMOVE AFTERWARDS
-        //  MD5_Init(&context);
-        //}
+        //Move memory region data to a fixed location
+        //to avoid modification while executing 
+        memcpy(mem_tmp, area->addr + (area->size-toCopy), chunkSize);
+        Util::writeAll(fd, mem_tmp, chunkSize);
+        MD5_Update(&context, mem_tmp, chunkSize);
+        toCopy -= chunkSize;
       }
     }
   }

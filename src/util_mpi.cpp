@@ -420,6 +420,7 @@ UtilsMPI::isCkptValid(const char *filename){
   int skip_update;
   int num_updates = 0;
   MD5_Init(&context);
+  char *addr_tmp = (char *)malloc(MEM_TMP_SIZE);
   while (Util::readAll(fd, &area, sizeof(area)) == sizeof(area)){
     skip_update = 0;
 
@@ -439,12 +440,7 @@ UtilsMPI::isCkptValid(const char *filename){
     if (area.prot == 0 || (area.name[0] == '\0' &&
           ((area.flags & MAP_ANONYMOUS) != 0) &&
           ((area.flags & MAP_PRIVATE) != 0))){
-      if (area.properties == 0){
-        //some contents have been written
-        //read but ignore them
-        skip_update = 1;
-      }
-      else {
+      if(area.properties == DMTCP_ZERO_PAGE) {
         //zero page, skip
         continue;
       }
@@ -457,31 +453,27 @@ UtilsMPI::isCkptValid(const char *filename){
        continue;
     }
    
-    //skip rw region of this library
-    if(Util::strEndsWith(area.name, "libdmtcp.so") &&
-            (area.prot & PROT_READ) && (area.prot & PROT_WRITE)){
-      
-      skip_update = 1;
-    }
 
+    uint64_t toRead = area.size;
+    while (toRead > 0){
+      uint64_t chunkSize = (toRead > MEM_TMP_SIZE) ?
+                           MEM_TMP_SIZE : toRead;
 
-    //read memory region
-    area.addr = (char *)malloc(area.size);
-    if((bytes_read = Util::readAll(fd, area.addr, area.size)) != (ssize_t)area.size){
-      if(bytes_read == -1) {
-        printf("  Error reading memory region: %s\n", strerror(errno));
+      if((bytes_read = Util::readAll(fd, addr_tmp, chunkSize)) != (ssize_t)chunkSize){
+        if(bytes_read == -1) {
+          printf("  Error reading memory region: %s\n", strerror(errno));
+        }
+        else {
+          printf("  Expected memory region of %lu bytes, got only %ld.\n", area.size, bytes_read);
+        }
+        close(fd); close (fd_chksum);
+        free(addr_tmp);
+        return 0;
       }
-      else {
-        printf("  Expected memory region of %lu bytes, got only %ld.\n", area.size, bytes_read);
-      }
-      close(fd); close (fd_chksum);
-      free(area.addr);
-      return 0;
+      MD5_Update(&context, addr_tmp, chunkSize);
+      toRead -= chunkSize;
+      num_updates++;
     }
-
-    if(!skip_update){
-      //update md5 context
-      MD5_Update(&context, area.addr, area.size);
 
       //if (_rank == 0){
         //testing
@@ -494,15 +486,14 @@ UtilsMPI::isCkptValid(const char *filename){
       //    printf("%x", digest[i]);
       //  }
       //  printf("\n");
-        num_updates++;
       
         //TEST, REMOVE AFTERWARDS
       //  MD5_Init(&context);
       //}
-    }
 
-    free(area.addr);
   }
+
+  free(addr_tmp);
 
   if(area.size != END_OF_CKPT){
     printf("  Checkpoint file did not finish as expected.\n");
