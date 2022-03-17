@@ -59,7 +59,9 @@ For details of installing and using MANA, please see:
 
 This work extends the Mana library with several levels of checkpointing.
 
-Current progress implements two types of checkpoints: local storage checkpoint and global storage checkpoint. We currently support checkpoint intervals for both local and global checkpoints concurrently, prioritizing global checkpoints in the event of frequency collision. We also implement a method for automatically deciding from which type of checkpoint the application should recover.  We intend to implement other types of checkpoint that make use of local storage to perform techniques to improve the reliability without the need to write to global storage.
+Current progress implements three types of checkpoints: local storage checkpoint, local storage with partner copy and global storage checkpoint. Partner copy consists in copying the checkpoint to another rank from a different node, so that it can be recovered in the event of corruption/file loss. We support checkpoint intervals for all checkpoint levels concurrently, prioritizing higher level checkpoints in the event of frequency collision. We also implement a method for automatically deciding from which type of checkpoint the application should recover. Each checkpoint file is created along with a checksum, which is used to verify the integrity of the checkpoint data before using it for recovery. 
+
+In order to decide how to perform the checkpoint copy, the topology of the execution (number of nodes, ranks per node, etc.) is needed. In order to test the library in a local machine, test mode can be used, which simulates a fake topology.
 
 We make use of a configuration file in order to make the customization of Mana options easier. We currently support the following options:
 
@@ -67,5 +69,7 @@ We make use of a configuration file in order to make the customization of Mana o
 - Global checkpoint location
 - Local checkpoint interval
 - Global checkpoint interval
+- Partner copy checkpoint interval
+- Test mode
 
 An example of the configuration file is found [here](templates/mana.conf).
