@@ -14,6 +14,7 @@ existing packages on your machine.
   # yum groupinstall 'Development Tools'
   # yum install -y mlocate vim wget
   # yum install -y centos-release-scl
+  # yum install -y openssl-devel
   # yum install -y devtoolset-8-gcc devtoolset-8-gcc-c++
   # echo 'source scl_source enable devtoolset-8' >> ~/.bashrc
   # source ~/.bashrc
@@ -45,12 +46,12 @@ streamlined way of doing so is provided through ./configure-mana.
   # make
   # cp ./src/liblzma/.libs/liblzma.a /usr/lib64/
 
-2. Installing the MANA directory and compiling MANA
+2. Installing MANA multi-level extension
 
 In this tutorial, we'll install MANA in the home directory.
 
   $ cd ~
-  $ git clone https://github.com/mpickpt/mana.git
+  $ git clone https://github.com/marcpb94/mana_multilevel
   $ cd mana
   $ git checkout feature/centos 
   $ ./configure-mana
