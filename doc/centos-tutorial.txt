@@ -52,7 +52,7 @@ In this tutorial, we'll install MANA in the home directory.
 
   $ cd ~
   $ git clone https://github.com/marcpb94/mana_multilevel
-  $ cd mana
+  $ cd mana_multilevel
   $ git checkout feature/centos 
   $ ./configure-mana
   $ make -j mana
@@ -97,15 +97,20 @@ If you've been following this tutorial precisely, then {MANA_ROOT} should be
 
 1. Launching an MPI application
 
+For convenience, it is recomended to use a configuration file, which
+you can copy from [templates/mana.conf](templates/mana.conf). You will have to change the location
+of the global and local storage directories before using it.
+
 The MANA directory comes with many test MPI applications that can be found in
 contrib/mpi-proxy-plugin/test. Depending on the application, we may require
 more than one copy of the process running -- for example, ping_pong.mana.exe
 requires two. To support this, change the argument after -np accordingly. For this
 tutorial, we'll use mpi_hello_world.mana.exe, which only requires one copy
-running.
+running. For convenience, it is recomended to use a configuration file, which
+you can copy from templates/mana.conf.
 
-  $ mana_coordinator
-  $ mpirun -np 1 mana_launch \ 
+  $ mana_coordinator --config mana.conf
+  $ mpirun -np 1 mana_launch --config mana.conf \ 
       contrib/mpi-proxy-split/test/mpi_hello_world.mana.exe
 
 If the application is launched properly, you should see the following printed:
@@ -128,8 +133,8 @@ If an application is already launched, we do CTRL-Z, followed by:
 Otherwise, we'll launch an application the same way as above, but as a
 background process (note the &).
 
-  $ mana_coordinator
-  $ mpirun -np 1 mana_launch \ 
+  $ mana_coordinator --config mana.conf
+  $ mpirun -np 1 mana_launch --config mana.conf \ 
       contrib/mpi-proxy-split/test/mpi_hello_world.mana.exe &
 
 Subsequently, we only need the following command to checkpoint the application.
@@ -152,14 +157,13 @@ MANA_ROOT/test/plugin/applic-initiated-ckpt.
 
 To restart the application, we do the following:
 
-  $ mana_coordinator
-  $ mpirun -np 1 mana_restart
+  $ mana_coordinator --config mana.conf
+  $ mpirun -np 1 mana_restart --config mana.conf
 
-By default, the mana_restart command looks for ckpt_rank_* folders in the
-current directory to restart, and will fail if such folders cannot be found.
-You can use the --restartdir flag of mana_restart to specify which directory
-to look for such folders; more information can be found on the MANA manpage
-(in section C).
+By default, the mana_restart command tries to recover from the oldest checkpoint
+that has been verified to be correct in all processes.
+You can use the --restartdir flag of mana_restart if you want to recover from a
+specific checkpoint location instead.
 
 Depending on whether there is another instance of mana_coordinator running, we
 may need to either close all other instances or launch a coordinator with a
