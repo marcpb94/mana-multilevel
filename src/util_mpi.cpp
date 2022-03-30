@@ -47,7 +47,7 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   for (i = 0; i < mpi_size; i++){
     found = 0;
     //check if already in the list
-    for (j = 0; j < num_nodes && !found; j++){
+    for (j = 0; j < num_nodes && !found; j++){ //MMR: !found here is always equal to TRUE
       if(strcmp(nameList + j*HOSTNAME_MAXSIZE, allNodes + i*HOSTNAME_MAXSIZE) == 0){
         found = 1;
         break;
