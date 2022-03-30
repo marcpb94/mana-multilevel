@@ -8,6 +8,7 @@
 #include <fstream>
 #include <string>
 #include "constants.h"
+#include <mpi.h>
 
 #define GLOBAL_CKPT_DIR_OPTION "global_ckpt_dir"
 #define LOCAL_CKPT_DIR_OPTION "local_ckpt_dir"
@@ -40,8 +41,15 @@ public:
   int numNodes;
   char *nameList, *hostname;
   int *nodeMap, *partnerMap;
+  int nodeSize, groupSize;
+  int sectionID; // Identifies the group of nodes to which a process belongs.
+  int groupRank; // The rank of the process in the group communicator
+  int right, left; // Identify the right and left processes in the group communicator.
 
-  Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map);
+  MPI_Comm groupComm;
+
+  Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int node_size, int group_size, 
+          int section_ID, int group_rank, int righ_t, int lef_t, MPI_Comm group_comm);
 
 };
 

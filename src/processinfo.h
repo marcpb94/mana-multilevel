@@ -172,6 +172,7 @@ class ProcessInfo
     char *getNameList() const { return _topo->nameList; }
     int *getNodeMap() const { return _topo->nodeMap; }
     int *getPartnerMap() const { return _topo->partnerMap; }
+    MPI_Comm getGroupComm() { return _topo->groupComm; }
 
   private:
     map<pid_t, UniquePid>_childTable;

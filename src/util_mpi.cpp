@@ -66,27 +66,91 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
     }
   }
 
+  int node_size = mpi_size / num_nodes;
+
+  // We first want to create an inverse node-process mapping as that done in Topology. There, nodeMap[i] linked
+  // the ith process to the ith node in nameList. Instead, we want that in inverseNodeMap the node is indicated 
+  // by the position in the array (e.g. the first n processes correspond to the first node, the next n processes
+  // correspond to the second one, etc; where n is the number of processes per node). Then, inverseNodeMap[i] 
+  // links the ith process to the node corresponding to its position in the array. This will the grouping of nodes
+  // easier.
+
+  int num_proc = mpi_size;
+
+  int* inverseNodeMap = (int *)malloc(sizeof(int) * num_proc);
+
+  // We initally set the mapping incorrectly
+  for(i=0; i<num_proc; i++){
+    inverseNodeMap[i] = -1;
+  }
+
+  for(i=0; i<num_proc; i++){
+    int pos = nodeMap[i]*node_size;
+    for(j=0;j<node_size;j++){
+      // We search for an unoccupied space in the processes corresponding to a given node
+      if(inverseNodeMap[pos+j]==-1){
+        // inverseNodeMap[pos+j] is not occupied so we put process i here
+        inverseNodeMap[pos+j]=i;
+        break;
+      }
+    }
+  }
+
+  // Now all processes are nicely organized in inverseNodeMap depending on the node to which they belong. 
+  // We want now to group different processes correponding to different nodes with a size set by group_size
+  // and create communicators around them.
+  int group_size=2; // TODO how do we obtain this?
+  MPI_Group newGroup, origGroup;
+  MPI_Comm group_comm;
+  int group_rank;
+  int right, left;
+  int my_node = nodeMap[mpi_rank];
+  int section_ID = my_node / group_size;
+  int buf = section_ID*group_size*node_size;
+  int group[group_size];
+
+  // We have to find where our process is located in inverseNodeMap. We already now it corresponds to node nodeMap[mpi_rank]
+  int pos;
+  for(pos = 0;pos<node_size;pos++){
+    if(inverseNodeMap[nodeMap[mpi_rank]*node_size+pos]==mpi_rank){
+      break;
+    }
+  }
+
+  for(i = 0;i<group_size;i++){
+    group[i] = inverseNodeMap[buf+pos+i*node_size];
+  }
+
+  MPI_Comm_group(MPI_COMM_WORLD, &origGroup);
+  MPI_Group_incl(origGroup, group_size, group, &newGroup);
+  MPI_Comm_create(MPI_COMM_WORLD, newGroup, &group_comm); 
+  MPI_Comm_rank(group_comm, &group_rank);
+  right=(group_rank+1+group_size) % group_size;
+  left=(group_rank-1+group_size) % group_size;
+
+
+  MPI_Group_free(&origGroup);
+  MPI_Group_free(&newGroup);
+
   //initialize partner map with impossible value
   for(i = 0; i < mpi_size; i++) partnerMap[i] = -1;
   //create partner mapping
   for (i = 0; i < mpi_size; i++){
-    if(partnerMap[i] == -1){
-      found = 0;
-      //find available partner rank in different node
-      for(j = i+1; j < mpi_size; j++){
-        if(nodeMap[i] != nodeMap[j] && partnerMap[j] == -1){
-          //connect both nodes
-          partnerMap[i] = j;
-          partnerMap[j] = i;
-          found = 1;
-          break;
-        }
+    // The process is at node nodeMap[i]. Let us search at which position in inverseNodeMap.
+    int buf = nodeMap[i]*node_size;
+    int j;
+    for(j=0;j<node_size;j++){
+      if(i==inverseNodeMap[buf+j]){
+        break;
       }
-      JASSERT(found).Text("Could not complete partner mapping, application topology might contain uneven ranks per node or the execution is performed locally without enabling test mode.");
     }
+    int sect = nodeMap[i] / group_size;
+    partnerMap[i]= inverseNodeMap[sect*group_size*node_size + (buf+j+node_size)%(group_size*node_size)];
   }
 
-  *topo = new Topology(num_nodes, nameList, hostname, nodeMap, partnerMap);
+
+  *topo = new Topology(num_nodes, nameList, hostname, nodeMap, partnerMap, node_size, group_size, section_ID, group_rank, right,
+                      left, group_comm);
 
   free(allNodes);
 }
@@ -198,7 +262,7 @@ UtilsMPI::recoverFromPartnerCopy(string ckptFilename, int *partnerMap){
 }
 
 void
-UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
+UtilsMPI::performPartnerCopy(string ckptFilename, MPI_Comm groupComm){
   
   if (_rank == 0){
     printf("Performing partner copy...\n");
@@ -208,7 +272,6 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   string partnerFilename = ckptFilename + "_partner";
   string partnerChksum = partnerFilename + "_md5chksum";
   string ckptChksum = ckptFilename + "_md5chksum";
-  int myPartner = partnerMap[_rank];
   
   int fd_p = open(partnerFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   JASSERT(fd_p != -1);
@@ -231,11 +294,22 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
   char *buffSend = (char *)malloc(DATA_BLOCK_SIZE);
   MPI_Request req;
 
+  //identify left and right partners
+  int group_rank, group_size;
+  int right, left;
+  MPI_Comm_rank(groupComm,&group_rank);
+  MPI_Comm_size(groupComm,&group_size);
+  right = (group_rank+1+group_size)%group_size;
+  left = (group_rank-1+group_size)%group_size;
 
   //exchange ckpt file sizes
-  MPI_Isend(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, &req);
-  MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Isend(&ckptSize, sizeof(off_t), MPI_CHAR, right, 0, groupComm, &req);
+  MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, left, 0, groupComm, MPI_STATUS_IGNORE);
   MPI_Wait(&req, MPI_STATUS_IGNORE);
+
+  char miss[256];
+  sprintf(miss,"%d i %d",right,left);
+  JASSERT(0).Text(miss);
 
   toRecv = partnerCkptSize;
   //send/recv ckpt file
@@ -248,10 +322,10 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
 
     if (sendSize > 0) {
       Util::readAll(fd_m, buffSend, sendSize);
-      MPI_Isend(buffSend, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, &req);
+      MPI_Isend(buffSend, sendSize, MPI_CHAR, right, 0, groupComm, &req);
     }
     if(recvSize > 0){
-      MPI_Recv(buffRecv, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      MPI_Recv(buffRecv, recvSize, MPI_CHAR, left, 0, groupComm, MPI_STATUS_IGNORE);
       Util::writeAll(fd_p, buffRecv, recvSize);
     }
     if(sendSize > 0){
@@ -262,9 +336,10 @@ UtilsMPI::performPartnerCopy(string ckptFilename, int *partnerMap){
     toRecv -= recvSize;
   }
 
+  JASSERT(0).Text("Hola");
   Util::readAll(fd_m_chksum, buffSend, 16);
-  MPI_Isend(buffSend, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, &req);
-  MPI_Recv(buffRecv, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Isend(buffSend, 16, MPI_CHAR, right, 0, groupComm, &req);
+  MPI_Recv(buffRecv, 16, MPI_CHAR, left, 0, groupComm, MPI_STATUS_IGNORE);
   Util::writeAll(fd_p_chksum, buffRecv, 16);
   MPI_Wait(&req, MPI_STATUS_IGNORE);
 
@@ -712,4 +787,3 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
 
     return target;
 }
-
