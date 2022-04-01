@@ -1,0 +1,19 @@
+all: heatdis-mpi heatdis-mana
+
+heatdis-mpi: heatdis.c
+	mpicc -o heatdis.mpi.exe heatdis.c -lm
+
+heatdis-mana: heatdis.c
+	gcc -o heatdis.mana.exe heatdis.c -I../../include/ -L../../lib/dmtcp -lm -lmpidummy
+
+
+exec:	heatdis-mana
+	mkdir local && mkdir global
+	rm -rf local/* && rm -rf global/*
+	../../bin/mana_coordinator --config mana.conf && mpirun -np 4 ../../bin/mana_launch --config mana.conf ./heatdis.mana.exe 150
+
+restart: heatdis-mana
+	../../bin/mana_coordinator --config mana.conf && mpirun -np 4 ../../bin/mana_restart --config mana.conf
+
+clean:
+	rm heatdis-*
