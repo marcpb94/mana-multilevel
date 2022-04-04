@@ -19,6 +19,11 @@ dmtcpaware*
 
 autom4te.cache
 
+!test_apps/*/Makefile
+test_apps/*/*.exe
+test_apps/*/global
+test_apps/*/local
+
 bin/
 lib/
 local/
