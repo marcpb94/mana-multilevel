@@ -1561,7 +1561,8 @@ recomputeCkptTimings(uint32_t alarm_time)
 
   //prioritize higher level
   for (i = CKPT_GLOBAL; i >= 0; i--){
-    if (chosenType == -1 || 
+    if (chosenType == -1 ||
+        ckptTimeLeft[chosenType] == 0 ||
         (ckptTimeLeft[chosenType] > ckptTimeLeft[i] && 
          ckptTimeLeft[i] != 0)){
            chosenType = i;
