@@ -8,12 +8,12 @@ heatdis-mana: heatdis.c
 
 
 exec:	heatdis-mana
-	mkdir local && mkdir global
+	mkdir -p local && mkdir -p global
 	rm -rf local/* && rm -rf global/*
-	../../bin/mana_coordinator --config mana.conf && mpirun -np 4 ../../bin/mana_launch --config mana.conf ./heatdis.mana.exe 150
+	../../bin/mana_coordinator --daemon --config mana.conf && mpirun -np 8 ../../bin/mana_launch --config mana.conf ./heatdis.mana.exe 150
 
 restart: heatdis-mana
-	../../bin/mana_coordinator --config mana.conf && mpirun -np 4 ../../bin/mana_restart --config mana.conf
+	../../bin/mana_coordinator --daemon --config mana.conf && mpirun -np 8 ../../bin/mana_restart --config mana.conf
 
 clean:
-	rm heatdis-*
+	rm -rf heatdis-* local/* global/*
