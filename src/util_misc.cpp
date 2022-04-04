@@ -926,10 +926,10 @@ RestartInfo::readRestartInfo(){
   }
 }
 
-Topology::Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int node_size, int group_size, 
+Topology::Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int num_proc, int node_size, int group_size, 
           int section_ID, int group_rank, int righ_t, int lef_t, MPI_Comm group_comm){
   numNodes = num_nodes; nameList = name_list; hostname = host_name; 
-  nodeMap = node_map; partnerMap = partner_map;
+  nodeMap = node_map; partnerMap = partner_map; numProc=num_proc;
   nodeSize = node_size; groupSize = group_size; sectionID = section_ID; groupRank = group_rank;
   right = righ_t; left=lef_t;
   groupComm = group_comm;

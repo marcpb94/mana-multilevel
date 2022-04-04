@@ -41,6 +41,7 @@ public:
   int numNodes;
   char *nameList, *hostname;
   int *nodeMap, *partnerMap;
+  int numProc;
   int nodeSize, groupSize;
   int sectionID; // Identifies the group of nodes to which a process belongs.
   int groupRank; // The rank of the process in the group communicator
@@ -48,7 +49,7 @@ public:
 
   MPI_Comm groupComm;
 
-  Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int node_size, int group_size, 
+  Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int num_proc, int node_size, int group_size, 
           int section_ID, int group_rank, int righ_t, int lef_t, MPI_Comm group_comm);
 
 };

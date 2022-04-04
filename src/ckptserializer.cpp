@@ -496,8 +496,8 @@ void
 CkptSerializer::performPartnerCopy()
 {
   string ckptFilename = ProcessInfo::instance().getCkptFilename();
-  MPI_Comm groupComm = ProcessInfo::instance().getGroupComm();
-  UtilsMPI::instance().performPartnerCopy(ckptFilename, groupComm);
+  Topology* topo = ProcessInfo::instance().getTopology();
+  UtilsMPI::instance().performPartnerCopy(ckptFilename, topo);
 }
 
 void

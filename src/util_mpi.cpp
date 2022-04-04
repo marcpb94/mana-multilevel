@@ -11,7 +11,6 @@ UtilsMPI::UtilsMPI(){
   MPI_Comm_rank(MPI_COMM_WORLD, &_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &_size);
 }
-
 UtilsMPI
 UtilsMPI::instance(){
   if (_inst == NULL){
@@ -47,7 +46,7 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   for (i = 0; i < mpi_size; i++){
     found = 0;
     //check if already in the list
-    for (j = 0; j < num_nodes && !found; j++){ //MMR: !found here is always equal to TRUE
+    for (j = 0; j < num_nodes && !found; j++){
       if(strcmp(nameList + j*HOSTNAME_MAXSIZE, allNodes + i*HOSTNAME_MAXSIZE) == 0){
         found = 1;
         break;
@@ -99,7 +98,7 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   // Now all processes are nicely organized in inverseNodeMap depending on the node to which they belong. 
   // We want now to group different processes correponding to different nodes with a size set by group_size
   // and create communicators around them.
-  int group_size=2; // TODO how do we obtain this?
+  int group_size=4;
   MPI_Group newGroup, origGroup;
   MPI_Comm group_comm;
   int group_rank;
@@ -149,7 +148,7 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   }
 
 
-  *topo = new Topology(num_nodes, nameList, hostname, nodeMap, partnerMap, node_size, group_size, section_ID, group_rank, right,
+  *topo = new Topology(num_nodes, nameList, hostname, nodeMap, partnerMap, mpi_size, node_size, group_size, section_ID, group_rank, right,
                       left, group_comm);
 
   free(allNodes);
@@ -171,15 +170,14 @@ UtilsMPI::getHostName(int test_mode)
 }
 
 int
-UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
+UtilsMPI::assistPartnerCopy(string ckptFilename, Topology *topo){
   
-  printf("Rank %d: performing recovery for partner rank %d...\n", _rank, partnerMap[_rank]);
+  printf("Rank %d | Group rank %d: performing recovery for partner group rank %d...\n", _rank, topo->groupRank, topo->left);
   fflush(stdout);
   
   
   string partnerCkptFile = ckptFilename;
   string partnerChksum = ckptFilename + "_md5chksum";
-  int myPartner = partnerMap[_rank];
  
   int fd = open(partnerCkptFile.c_str(), O_RDONLY);
   if(fd == -1) return 0;
@@ -195,19 +193,19 @@ UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
   char *buff = (char *)malloc(DATA_BLOCK_SIZE);
 
   //exchange ckpt file sizes
-  MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+  MPI_Send(&ckptSize, sizeof(off_t), MPI_CHAR, topo->left, 0, topo->groupComm);
   //send ckpt file
   while(toSend > 0){
     off_t sendSize = (toSend > DATA_BLOCK_SIZE) ?
 			  DATA_BLOCK_SIZE : toSend;
 
     Util::readAll(fd, buff, sendSize);
-    MPI_Send(buff, sendSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+    MPI_Send(buff, sendSize, MPI_CHAR, topo->left, 0, topo->groupComm);
     toSend -= sendSize;
   }
   //send checksum
   Util::readAll(fd_chksum, buff, 16);
-  MPI_Send(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD);
+  MPI_Send(buff, 16, MPI_CHAR, topo->left, 0, topo->groupComm);
  
 
 
@@ -219,13 +217,12 @@ UtilsMPI::assistPartnerCopy(string ckptFilename, int *partnerMap){
 }
 
 int
-UtilsMPI::recoverFromPartnerCopy(string ckptFilename, int *partnerMap){
+UtilsMPI::recoverFromPartnerCopy(string ckptFilename, Topology *topo){
   
-  printf("Rank %d: recovering from partner rank %d...\n", _rank, partnerMap[_rank]);
+  printf("Rank %d | Group rank %d: recovering from partner group rank %d...\n", _rank, topo->groupRank, topo->right);
   fflush(stdout);
   
   string ckptChksum = ckptFilename + "_md5chksum";
-  int myPartner = partnerMap[_rank];
   
   int fd = open(ckptFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   if(fd == -1) return 0;
@@ -238,19 +235,19 @@ UtilsMPI::recoverFromPartnerCopy(string ckptFilename, int *partnerMap){
   char *buff = (char *)malloc(DATA_BLOCK_SIZE);
 
   //exchange ckpt file sizes
-  MPI_Recv(&ckptSize, sizeof(off_t), MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Recv(&ckptSize, sizeof(off_t), MPI_CHAR, topo->right, 0, topo->groupComm, MPI_STATUS_IGNORE);
   toRecv = ckptSize;
   //receive ckpt file
   while(toRecv > 0){
     off_t recvSize = (toRecv > DATA_BLOCK_SIZE) ?
 			  DATA_BLOCK_SIZE : toRecv;
 
-    MPI_Recv(buff, recvSize, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(buff, recvSize, MPI_CHAR, topo->right, 0, topo->groupComm, MPI_STATUS_IGNORE);
     Util::writeAll(fd, buff, recvSize);
     toRecv -= recvSize;
   }
   //receive checksum
-  MPI_Recv(buff, 16, MPI_CHAR, myPartner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Recv(buff, 16, MPI_CHAR, topo->right, 0, topo->groupComm, MPI_STATUS_IGNORE);
   Util::writeAll(fd_chksum, buff, 16);
 
 
@@ -262,7 +259,7 @@ UtilsMPI::recoverFromPartnerCopy(string ckptFilename, int *partnerMap){
 }
 
 void
-UtilsMPI::performPartnerCopy(string ckptFilename, MPI_Comm groupComm){
+UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
   
   if (_rank == 0){
     printf("Performing partner copy...\n");
@@ -297,19 +294,13 @@ UtilsMPI::performPartnerCopy(string ckptFilename, MPI_Comm groupComm){
   //identify left and right partners
   int group_rank, group_size;
   int right, left;
-  MPI_Comm_rank(groupComm,&group_rank);
-  MPI_Comm_size(groupComm,&group_size);
-  right = (group_rank+1+group_size)%group_size;
-  left = (group_rank-1+group_size)%group_size;
+  right = topo->right;
+  left = topo->left;
 
   //exchange ckpt file sizes
-  MPI_Isend(&ckptSize, sizeof(off_t), MPI_CHAR, right, 0, groupComm, &req);
-  MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, left, 0, groupComm, MPI_STATUS_IGNORE);
+  MPI_Isend(&ckptSize, sizeof(off_t), MPI_CHAR, right, 0, topo->groupComm, &req);
+  MPI_Recv(&partnerCkptSize, sizeof(off_t), MPI_CHAR, left, 0, topo->groupComm, MPI_STATUS_IGNORE);
   MPI_Wait(&req, MPI_STATUS_IGNORE);
-
-  char miss[256];
-  sprintf(miss,"%d i %d",right,left);
-  JASSERT(0).Text(miss);
 
   toRecv = partnerCkptSize;
   //send/recv ckpt file
@@ -322,10 +313,10 @@ UtilsMPI::performPartnerCopy(string ckptFilename, MPI_Comm groupComm){
 
     if (sendSize > 0) {
       Util::readAll(fd_m, buffSend, sendSize);
-      MPI_Isend(buffSend, sendSize, MPI_CHAR, right, 0, groupComm, &req);
+      MPI_Isend(buffSend, sendSize, MPI_CHAR, right, 0, topo->groupComm, &req);
     }
     if(recvSize > 0){
-      MPI_Recv(buffRecv, recvSize, MPI_CHAR, left, 0, groupComm, MPI_STATUS_IGNORE);
+      MPI_Recv(buffRecv, recvSize, MPI_CHAR, left, 0, topo->groupComm, MPI_STATUS_IGNORE);
       Util::writeAll(fd_p, buffRecv, recvSize);
     }
     if(sendSize > 0){
@@ -336,10 +327,9 @@ UtilsMPI::performPartnerCopy(string ckptFilename, MPI_Comm groupComm){
     toRecv -= recvSize;
   }
 
-  JASSERT(0).Text("Hola");
   Util::readAll(fd_m_chksum, buffSend, 16);
-  MPI_Isend(buffSend, 16, MPI_CHAR, right, 0, groupComm, &req);
-  MPI_Recv(buffRecv, 16, MPI_CHAR, left, 0, groupComm, MPI_STATUS_IGNORE);
+  MPI_Isend(buffSend, 16, MPI_CHAR, right, 0, topo->groupComm, &req);
+  MPI_Recv(buffRecv, 16, MPI_CHAR, left, 0, topo->groupComm, MPI_STATUS_IGNORE);
   Util::writeAll(fd_p_chksum, buffRecv, 16);
   MPI_Wait(&req, MPI_STATUS_IGNORE);
 
@@ -612,13 +602,12 @@ UtilsMPI::isCkptValid(const char *filename){
  *
  */
 int
-UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
+UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
   string real_dir = ckpt_dir;
   char *rankchar = (char *)malloc(32);
   sprintf(rankchar, "/ckpt_rank_%d/", _rank);
   real_dir += rankchar;
   int success = 0, allsuccess, partnerSuccess;
-  int partner = partnerMap[_rank]; 
   string ckptFilename;
 
   try {
@@ -627,11 +616,11 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
         success = 1;
         if(ckpt_type == CKPT_PARTNER){
           //assist partner if necessary
-          MPI_Sendrecv(&success, 1, MPI_INT, partner, 0, 
-             &partnerSuccess, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          MPI_Sendrecv(&success, 1, MPI_INT, topo->right, 0, 
+             &partnerSuccess, 1, MPI_INT, topo->left, 0, topo->groupComm, MPI_STATUS_IGNORE);
           if(!partnerSuccess){
             //check if our partner ckpt is valid
-            printf("Rank %d: Partner rank %d requested assist with partner copy.\n", _rank, partner);
+            printf("Rank %d | Group rank %d: Partner group rank %d requested assist with partner copy.\n", _rank, topo->groupRank, topo->left);
             fflush(stdout);
             int partnerCkptValid = 0, placeholder;
             char *partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
@@ -639,16 +628,15 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
               partnerCkptValid = isCkptValid(partnerCkpt);
             }
             if(!partnerCkptValid){
-              printf("Rank %d: Partner copy ckpt not valid.\n", _rank);
+              printf("Rank %d | Group rank %d: Partner copy ckpt not valid.\n", _rank, topo->groupRank);
               fflush(stdout);
             }
             //send help response to partner
-            MPI_Sendrecv(&partnerCkptValid, 1, MPI_INT, partner, 0,
-                 &placeholder, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Send(&partnerCkptValid, 1, MPI_INT, topo->left, 0 ,topo->groupComm);
             if(partnerCkptValid){
               //assist
-              if(!assistPartnerCopy(partnerCkpt, partnerMap)){
-                printf("Rank %d: error while assisting rank %d with partner copy\n", _rank, partner);
+              if(!assistPartnerCopy(partnerCkpt, topo)){
+                printf("Rank %d | Group rank %d: error while assisting group rank %d with partner copy\n", _rank, topo->groupRank, topo->left);
                 fflush(stdout);
               }
             }
@@ -659,26 +647,26 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
     else {
       if(ckpt_type == CKPT_PARTNER){
         //recover from partner if possible
-        printf("Rank %d: Requesting recovery with partner rank %d\n", _rank, partner);
-        MPI_Sendrecv(&success, 1, MPI_INT, partner, 0, 
-             &partnerSuccess, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        printf("Rank %d | Group rank %d: Requesting recovery with partner group rank %d\n", _rank, topo->groupRank, topo->right);
+        MPI_Sendrecv(&success, 1, MPI_INT, topo->right, 0, 
+             &partnerSuccess, 1, MPI_INT, topo->left, 0, topo->groupComm, MPI_STATUS_IGNORE);
         int partnerCkptValid = 0, myCkptValid = 0;
         char *partnerCkpt = NULL;
         if(!partnerSuccess){
-          printf("Rank %d: Partner rank %d requested assist with partner copy.\n", _rank, partner);
+          printf("Rank %d | Group rank %d: Partner group rank %d requested assist with partner copy.\n", _rank, topo->groupRank, topo->left);
           fflush(stdout);
           partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
           if(partnerCkpt != NULL){
             partnerCkptValid = isCkptValid(partnerCkpt);
           }
           if(!partnerCkptValid){
-            printf("Rank %d: Partner copy ckpt not valid.\n", _rank);
+            printf("Rank %d | Group rank %d: Partner copy ckpt not valid.\n", _rank, topo->groupRank);
             fflush(stdout);
           }
         }
         //send/recv help response to partner
-        MPI_Sendrecv(&partnerCkptValid, 1, MPI_INT, partner, 0,
-                 &myCkptValid, 1, MPI_INT, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Sendrecv(&partnerCkptValid, 1, MPI_INT, topo->left, 0,
+                 &myCkptValid, 1, MPI_INT, topo->right, 0, topo->groupComm, MPI_STATUS_IGNORE);
         if(myCkptValid && (partnerSuccess || partnerCkptValid)){
           int ret;
           string fileCkpt;
@@ -687,24 +675,24 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
             filename = (char *)malloc(1024);
             sprintf(filename, "%s/ckptzRestored.dmtcp", real_dir.c_str());
           }
-          if(_rank > partner){
-            ret = recoverFromPartnerCopy(filename, partnerMap);
+          if(topo->groupRank % 2 == 0 ){
+            ret = recoverFromPartnerCopy(filename, topo);
             if(!partnerSuccess){
-              assistPartnerCopy(partnerCkpt, partnerMap);
+              assistPartnerCopy(partnerCkpt, topo);
             }
           }
           else {
             if(!partnerSuccess){
-              assistPartnerCopy(partnerCkpt, partnerMap);
+              assistPartnerCopy(partnerCkpt, topo);
             }
-            ret = recoverFromPartnerCopy(filename, partnerMap);
+            ret = recoverFromPartnerCopy(filename, topo);
           }
           //verify ckpt
           if (ret){
             success = isCkptValid(filename);
           }
           if(!ret || !success){
-            printf("Rank %d: Partner ckpt transmission was not successful or ckpt is corrupt.\n", _rank);
+            printf("Rank %d | Group rank %d: Partner ckpt transmission was not successful or ckpt is corrupt.\n", _rank, topo->groupRank);
             fflush(stdout);
           }
         }
@@ -714,7 +702,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, int *partnerMap){
     if(filename != NULL) free(filename);
   }
   catch (std::exception &e){ //survive unexpected exceptions and assume failure
-     printf("Rank %d: An exception occurred(%s).\n", _rank, e.what());
+     printf("Rank %d | Group rank %d: An exception occurred(%s).\n", _rank, topo->groupRank, e.what());
   }
 
   printf("Success of rank %d: %d\n", _rank, success);
@@ -769,7 +757,7 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
           printf("Checking checkpoint dir %s...\n", target.c_str());
           fflush(stdout);
         }
-        valid = checkCkptValid(candidate, target, topo->partnerMap);
+        valid = checkCkptValid(candidate, target, topo);
         if(!valid){
           //if not valid, set time to zero to invalidate
           //and loop again

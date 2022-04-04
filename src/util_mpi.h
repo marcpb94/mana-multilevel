@@ -38,11 +38,11 @@ public:
   int getSize() const { return _size; }
   char* getHostName(int test_mode);
   void getSystemTopology(int test_mode, Topology **topo);
-  void performPartnerCopy(string ckptFilename, int *partnerMap);
-  int checkCkptValid(int ckpt_type, string dir, int *partnerMap);
+  void performPartnerCopy(string ckptFilename, Topology *topo);
+  int checkCkptValid(int ckpt_type, string dir, Topology *topo);
   int isCkptValid(const char *filename);
-  int assistPartnerCopy(string ckptFilename, int *partnerMap);
-  int recoverFromPartnerCopy(string ckptFilename, int *partnerMap);
+  int assistPartnerCopy(string ckptFilename, Topology *topo);
+  int recoverFromPartnerCopy(string ckptFilename, Topology *topo);
   string recoverFromCrash(ConfigInfo *cfg);
   static UtilsMPI instance();
 };
