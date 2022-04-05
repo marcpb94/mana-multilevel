@@ -16,4 +16,4 @@ restart: heatdis-mana
 	../../bin/mana_coordinator --daemon --config mana.conf && mpirun -np 8 ../../bin/mana_restart --config mana.conf
 
 clean:
-	rm -rf heatdis-* local/* global/*
+	rm -rf *.exe local/* global/*

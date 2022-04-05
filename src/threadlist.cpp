@@ -561,8 +561,8 @@ checkpointhread(void *dummy)
       //printf("First time, checking topology...\n");
       //fflush(stdout);
       Topology *topo;
-      int test_mode = ProcessInfo::instance().getTestMode();
-      UtilsMPI::instance().getSystemTopology(test_mode, &topo);
+      ConfigInfo *cfg = ProcessInfo::instance().getConfig();
+      UtilsMPI::instance().getSystemTopology(cfg, &topo);
       ProcessInfo::instance().setTopology(topo);
       knownTopology = 1;
     }

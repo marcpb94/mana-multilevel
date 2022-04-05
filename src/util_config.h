@@ -16,6 +16,8 @@
 #define PARTNER_CKPT_INT_OPTION "partner_ckpt_interval"
 #define LOCAL_CKPT_INT_OPTION "local_ckpt_interval"
 #define TEST_MODE_OPTION "test_mode"
+#define NODE_SIZE_OPTION "node_size"
+#define GROUP_SIZE_OPTION "group_size"
 
 using namespace dmtcp;
 
@@ -29,6 +31,8 @@ public:
   uint32_t partnerInterval;
   uint32_t localInterval;
   uint32_t testMode;
+  int32_t nodeSize;
+  int32_t groupSize;
 
   ConfigInfo();
   void readConfigFromFile(std::string filename);

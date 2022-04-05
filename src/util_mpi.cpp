@@ -20,14 +20,14 @@ UtilsMPI::instance(){
 }
 
 void
-UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
+UtilsMPI::getSystemTopology(ConfigInfo *cfg, Topology **topo)
 {
   char *hostname;
   int num_nodes;
   int mpi_size, mpi_rank;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-  hostname = getHostName(test_mode);
+  hostname = getHostName(cfg);
   num_nodes = 0;
   //allocate enough memory for all hostnames
   char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
@@ -67,6 +67,11 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
 
   int node_size = mpi_size / num_nodes;
 
+  if (node_size != cfg->nodeSize && _rank == 0){
+    printf("Real node size(%d) does not match specified value(%d), is this intended?\n", node_size, cfg->nodeSize);
+    fflush(stdout);
+  }
+
   // We first want to create an inverse node-process mapping as that done in Topology. There, nodeMap[i] linked
   // the ith process to the ith node in nameList. Instead, we want that in inverseNodeMap the node is indicated 
   // by the position in the array (e.g. the first n processes correspond to the first node, the next n processes
@@ -98,7 +103,7 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   // Now all processes are nicely organized in inverseNodeMap depending on the node to which they belong. 
   // We want now to group different processes correponding to different nodes with a size set by group_size
   // and create communicators around them.
-  int group_size=4;
+  int group_size = cfg->groupSize;
   MPI_Group newGroup, origGroup;
   MPI_Comm group_comm;
   int group_rank;
@@ -107,6 +112,9 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   int section_ID = my_node / group_size;
   int buf = section_ID*group_size*node_size;
   int group[group_size];
+
+  // Make sure that group size is multiple of the node size
+  JASSERT(num_nodes % group_size == 0)(num_nodes)(group_size).Text("The number of nodes must be multiple of the group size.");
 
   // We have to find where our process is located in inverseNodeMap. We already now it corresponds to node nodeMap[mpi_rank]
   int pos;
@@ -155,15 +163,15 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
 }
 
 char *
-UtilsMPI::getHostName(int test_mode)
+UtilsMPI::getHostName(ConfigInfo *cfg)
 {
   char *hostName = (char *)malloc(HOSTNAME_MAXSIZE);
-  if(!test_mode){
+  if(!cfg->testMode){
     JASSERT(gethostname(hostName, HOSTNAME_MAXSIZE) == 0) (JASSERT_ERRNO);
   }
   else {
     //fake node size for testing purposes
-    int node_size = 2;
+    int node_size = cfg->nodeSize;
     sprintf(hostName, "node%d", _rank/node_size);
   }
   return hostName;
@@ -482,13 +490,10 @@ UtilsMPI::isCkptValid(const char *filename){
   Area area;
   size_t END_OF_CKPT = -1;
   ssize_t bytes_read;
-  int skip_update;
   int num_updates = 0;
   MD5_Init(&context);
   char *addr_tmp = (char *)malloc(MEM_TMP_SIZE);
   while (Util::readAll(fd, &area, sizeof(area)) == sizeof(area)){
-    skip_update = 0;
-
     //if -1 size found, we are finished
     if (area.size == END_OF_CKPT) break;
 
@@ -539,22 +544,6 @@ UtilsMPI::isCkptValid(const char *filename){
       toRead -= chunkSize;
       num_updates++;
     }
-
-      //if (_rank == 0){
-        //testing
-      //  printf("Rank: %d, checksum(%d): ", _rank,  num_updates);
-      //  if(num_updates == 10){
-      //    printf("area name: %s, prot: %d\n", area.name, area.prot);
-      //  }
-      //  MD5_Final(digest, &context);
-      //  for(int i = 0; i < 16; i++){
-      //    printf("%x", digest[i]);
-      //  }
-      //  printf("\n");
-      
-        //TEST, REMOVE AFTERWARDS
-      //  MD5_Init(&context);
-      //}
 
   }
 
@@ -622,7 +611,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
             //check if our partner ckpt is valid
             printf("Rank %d | Group rank %d: Partner group rank %d requested assist with partner copy.\n", _rank, topo->groupRank, topo->left);
             fflush(stdout);
-            int partnerCkptValid = 0, placeholder;
+            int partnerCkptValid = 0;
             char *partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
             if(partnerCkpt != NULL){
               partnerCkptValid = isCkptValid(partnerCkpt);
@@ -735,7 +724,7 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
     restartInfo->readRestartInfo();
 
     //get system topology
-    getSystemTopology(cfg->testMode, &topo);
+    getSystemTopology(cfg, &topo);
 
     //recovery prioritizing by time of checkpoint
     while(found && !valid){

@@ -326,13 +326,11 @@ processArgs(int *orig_argc,
       setenv(ENV_VAR_LOCAL_CKPT_DIR, argv[1], 1);
       shift; shift;
     } else if (argc > 1 && s == "--config") {
-      ConfigInfo conf = ConfigInfo();
-      conf.readConfigFromFile(std::string(argv[1]));
-      setenv(ENV_VAR_LOCAL_CKPT_DIR, conf.localCkptDir.c_str(), 1);
-      setenv(ENV_VAR_GLOBAL_CKPT_DIR, conf.globalCkptDir.c_str(), 1);
-      char test_mode[13];
-      sprintf(test_mode, "%d", conf.testMode);
-      setenv(ENV_VAR_TEST_MODE, test_mode, 1);
+      ConfigInfo cfg = ConfigInfo();
+      cfg.readConfigFromFile(std::string(argv[1]));
+      setenv(ENV_VAR_LOCAL_CKPT_DIR, cfg.localCkptDir.c_str(), 1);
+      setenv(ENV_VAR_GLOBAL_CKPT_DIR, cfg.globalCkptDir.c_str(), 1);
+      setenv(ENV_VAR_CONFIG_FILE, argv[1], 1);
       shift; shift;
     } else if (argc > 1 && (s == "-t" || s == "--tmpdir")) {
       tmpdir_arg = argv[1];
