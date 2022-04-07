@@ -268,7 +268,7 @@ UtilsMPI::recoverFromPartnerCopy(string ckptFilename, Topology *topo){
 
 void
 UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
-  
+
   if (_rank == 0){
     printf("Performing partner copy...\n");
     fflush(stdout);
@@ -352,6 +352,111 @@ UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
   JASSERT(close(fd_m) == 0);
   JASSERT(close(fd_p_chksum) == 0);
   JASSERT(close(fd_m_chksum) == 0);
+}
+
+void 
+UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
+  // Group rank 0 is the process that will perform RS encoding from the blocks of ckpt image the other processes send him.
+  // After each block of encoded ckpt file has been calculated, group rank 0 sends to the other processes their corresponding part.
+  int w = 4; // TODO: As of now, we initially set w=4. B/w bytes must be a multiple of machine's word size.
+
+  if(topo->groupRank==0){
+    printf("Performing RS encoding...\n");
+    fflush(stdout);
+  }
+
+  string encodedFilename = ckptFilename + "_encoded";
+
+  int fd_m = open(ckptFilename.c_str(), O_RDONLY);
+  JASSERT(fd_m != -1);
+
+  int fd_e = open(encodedFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  JASSERT(fd_e != -1);
+
+  struct stat sb;
+  JASSERT(fstat(fd_m, &sb) == 0);
+  off_t myCkptFileSize = sb.st_size;
+
+  // I tried to implement the exchange of filesizes with a variant of Alltoall, but encountered the problem that the array received
+  // was interpeted as being of chars, and for example ckptFileSizes[4] did not cause a segmentation fault. Instead, I will for now
+  // do a sendreceive from grouprank 0 to all other processes. As is now implemented I still could do ckptFileSizes[4] and not get
+  // a segfault, so maybe there would not be a problem with the following code, but as it is it works, so it will stay for now this way.
+  /*** 
+  int displacement_send[topo->groupSize];
+  MPI_Datatype send_datatypes[topo->groupSize];
+  int displacement_receive[topo->groupSize];
+  int count_sends[topo->groupSize];
+  int i;
+  for(i=0;i<topo->groupSize;i++){
+    displacement_send[i]=i; 
+    send_datatypes[i] = MPI_CHAR;
+    displacement_receive[i]=i;
+    count_sends[i]=sizeof(off_t);
+  }
+
+  MPI_Alltoallv(&myCkptFileSize,count_sends,displacement_send,MPI_CHAR,ckptFileSizes,count_sends,displacement_send,MPI_CHAR,topo->groupComm);
+
+
+  for(i=1;i<topo->groupSize;i++){
+    if(ckptFileSizes[i]>maxSize){
+      maxSize=ckptFileSizes[i];
+    }
+  }
+  ***/
+  int i;
+  off_t ckptFileSizes[topo->groupSize];
+  if(topo->groupRank==0){
+    ckptFileSizes[0]=myCkptFileSize;
+    for(i=1;i<topo->groupSize;i++){
+      MPI_Recv(&(ckptFileSizes[i]),sizeof(off_t),MPI_CHAR,i,0,topo->groupComm,MPI_STATUS_IGNORE);
+    }
+  }else{
+    MPI_Send(&myCkptFileSize,sizeof(off_t),MPI_CHAR,0,0,topo->groupComm);
+  }
+  off_t maxSize;
+  if(topo->groupRank==0){
+    maxSize = ckptFileSizes[0];
+    for(i=1;i<topo->groupSize;i++){
+      if(ckptFileSizes[i]>maxSize){
+        maxSize=ckptFileSizes[i];
+      }
+    }
+    for(i=1;i<topo->groupSize;i++){
+      MPI_Send(&maxSize,sizeof(off_t),MPI_CHAR,i,0,topo->groupComm);
+    }
+  }else{
+    MPI_Recv(&maxSize,sizeof(off_t),MPI_CHAR,0,0,topo->groupComm,MPI_STATUS_IGNORE);
+  }
+
+
+  // Now we have to elongate every ckpt file so that everyone has the same size. Their size is going to be maxSize+sizeof(off_t). 
+  // Except that the size of each file has to be a multiple of w*machine_word_size, so we also have to round in this way
+
+  int machine_word_size=64;
+  off_t final_size = maxSize+sizeof(off_t);
+  if(final_size%(w*machine_word_size/8)!=0){
+    final_size += w*machine_word_size/8-final_size%(w*machine_word_size/8); 
+  }
+
+  JASSERT(close(fd_m) == 0);
+  if(truncate(ckptFilename.c_str(),final_size) == -1){
+    JASSERT(0).Text("Error with truncation on ckpt image.\n");
+  }
+
+  // Now we will write the original size of the ckpt to the end of the elongated file, so that at restart we can recover 
+  // the original ckpt image
+
+  fd_m = open(ckptFilename.c_str(), O_RDONLY);
+  JASSERT(fd_m != -1);
+  if(lseek(fd_m, -sizeof(off_t), SEEK_END) == -1){
+    JASSERT(0).Text("Unable to seek in file.\n");
+  }
+  if(write(fd_m,&myCkptFileSize,sizeof(off_t))==-1){
+    JASSERT(0).Text("Unable to write ckpt file size in elongated file.\n");
+  }
+
+  // Now let us turn to the actual encoding. 
+  
 }
 
 char*

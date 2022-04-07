@@ -579,6 +579,17 @@ checkpointhread(void *dummy)
       }
     }
 
+    // TODO: Just for now, we will turn local ckpt into RS encoding, so as to focus only on this part, and not inserting it as a new level
+    if(ckpt_type == CKPT_LOCAL){
+      uint64_t post_start = getRealCurrTime();
+      CkptSerializer::performRSEncoding();
+      uint64_t post_time = (getRealCurrTime() - post_start)/1000;
+      double post_time_sec = ((double)post_time)/1000;
+      if(UtilsMPI::instance().getRank() == 0){
+        printf("RS post-processing took %.3f seconds.\n", post_time_sec);
+      }
+    }
+
     uint64_t ckpt_time_ms = (getRealCurrTime() - start_time)/1000;
     double time_sec = ((double)ckpt_time_ms)/1000;
 

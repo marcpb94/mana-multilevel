@@ -501,6 +501,14 @@ CkptSerializer::performPartnerCopy()
 }
 
 void
+CkptSerializer::performRSEncoding()
+{
+  string ckptFilename = ProcessInfo::instance().getCkptFilename();
+  Topology* topo = ProcessInfo::instance().getTopology();
+  UtilsMPI::instance().performRSEncoding(ckptFilename, topo);
+}
+
+void
 CkptSerializer::writeDmtcpHeader(int fd)
 {
   const ssize_t len = strlen(DMTCP_FILE_HEADER);

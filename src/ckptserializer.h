@@ -35,6 +35,7 @@ void createCkptDir();
 void writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen);
 void writeDmtcpHeader(int fd);
 void performPartnerCopy();
+void performRSEncoding();
 }
 }
 #endif // ifndef CKPT_SERIZLIZER_H

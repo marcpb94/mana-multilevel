@@ -39,6 +39,7 @@ public:
   char* getHostName(ConfigInfo *cfg);
   void getSystemTopology(ConfigInfo *cfg, Topology **topo);
   void performPartnerCopy(string ckptFilename, Topology *topo);
+  void performRSEncoding(string ckptFilename, Topology *topo);
   int checkCkptValid(int ckpt_type, string dir, Topology *topo);
   int isCkptValid(const char *filename);
   int assistPartnerCopy(string ckptFilename, Topology *topo);
