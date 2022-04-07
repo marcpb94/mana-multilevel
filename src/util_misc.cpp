@@ -791,6 +791,7 @@ ConfigInfo::ConfigInfo() {
   globalCkptDir = "";
   localCkptDir = "";
   globalInterval = 0;
+  solomonInterval = 0;
   partnerInterval = 0;
   localInterval = 0;
   testMode = 0;
@@ -827,6 +828,15 @@ ConfigInfo::readConfigFromFile(std::string filename){
           JASSERT(false).Text("Error parsing global checkpoint interval.");
         }
         JASSERT(globalInterval >= 0)(globalInterval).Text("Invalid global checkpoint interval.");
+      }
+      else if (option == SOLOMON_CKPT_INT_OPTION){
+        try {
+          solomonInterval = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing Reed-Solomon checkpoint interval.");
+        }
+        JASSERT(solomonInterval >= 0)(solomonInterval).Text("Invalid Reed-Solomon checkpoint interval.");
       }
       else if (option == PARTNER_CKPT_INT_OPTION){
         try {
