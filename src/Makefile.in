@@ -168,7 +168,7 @@ __d_bindir__dmtcp_nocheckpoint_OBJECTS =  \
 	$(am___d_bindir__dmtcp_nocheckpoint_OBJECTS)
 __d_bindir__dmtcp_nocheckpoint_LDADD = $(LDADD)
 am___d_bindir__dmtcp_restart_OBJECTS = dmtcp_restart.$(OBJEXT) \
-	util_exec.$(OBJEXT) util_mpi.$(OBJEXT) util_misc.$(OBJEXT)
+	util_exec.$(OBJEXT) util_mpi.$(OBJEXT) galois.$(OBJEXT) util_misc.$(OBJEXT)
 __d_bindir__dmtcp_restart_OBJECTS =  \
 	$(am___d_bindir__dmtcp_restart_OBJECTS)
 __d_bindir__dmtcp_restart_DEPENDENCIES = libdmtcpinternal.a libjalib.a \
@@ -181,8 +181,8 @@ am___d_libdir__libdmtcp_so_OBJECTS = dmtcpworker.$(OBJEXT) \
 	writeckpt.$(OBJEXT) glibcsystem.$(OBJEXT) threadlist.$(OBJEXT) \
 	siginfo.$(OBJEXT) dmtcpplugin.$(OBJEXT) popen.$(OBJEXT) \
 	syslogwrappers.$(OBJEXT) dmtcp_dlsym.$(OBJEXT) \
-	plugininfo.$(OBJEXT) pluginmanager.$(OBJEXT) \
-	util_mpi.$(OBJEXT)
+	plugininfo.$(OBJEXT) pluginmanager.$(OBJEXT)  \
+	util_mpi.$(OBJEXT) galois.$(OBJEXT)
 __d_libdir__libdmtcp_so_OBJECTS =  \
 	$(am___d_libdir__libdmtcp_so_OBJECTS)
 __d_libdir__libdmtcp_so_DEPENDENCIES = libdmtcpinternal.a libjalib.a \
@@ -574,7 +574,7 @@ libsyscallsreal_a_SOURCES = syscallsreal.c trampolines.cpp
 libnohijack_a_SOURCES = nosyscallsreal.c dmtcpnohijackstubs.cpp
 __d_bindir__dmtcp_coordinator_SOURCES = dmtcp_coordinator.cpp lookup_service.cpp restartscript.cpp
 __d_bindir__dmtcp_nocheckpoint_SOURCES = dmtcp_nocheckpoint.c
-__d_bindir__dmtcp_restart_SOURCES = dmtcp_restart.cpp util_exec.cpp util_mpi.cpp util_misc.cpp
+__d_bindir__dmtcp_restart_SOURCES = dmtcp_restart.cpp util_exec.cpp util_mpi.cpp galois.cpp util_misc.cpp
 __d_bindir__dmtcp_command_SOURCES = dmtcp_command.cpp
 __d_libdir__libdmtcp_so_SOURCES = dmtcpworker.cpp threadsync.cpp \
 		      coordinatorapi.cpp execwrappers.cpp \
@@ -587,7 +587,7 @@ __d_libdir__libdmtcp_so_SOURCES = dmtcpworker.cpp threadsync.cpp \
 		      threadlist.cpp siginfo.cpp \
 		      dmtcpplugin.cpp popen.cpp syslogwrappers.cpp \
 		      dmtcp_dlsym.cpp plugininfo.cpp pluginmanager.cpp \
-	              util_mpi.cpp
+	          util_mpi.cpp galois.cpp
 
 __d_libdir__libdmtcp_so_LDFLAGS = -shared -Xlinker -znow
 
