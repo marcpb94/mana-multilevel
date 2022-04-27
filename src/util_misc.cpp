@@ -804,8 +804,13 @@ ConfigInfo::readConfigFromFile(std::string filename){
       while(line.length() > 0 && (line[0] == ' ' || line[0] == '\t')){
         line.erase(0,1);
       }
+      //remove comments
+      uint64_t index = line.find("#");
+      if(index != std::string::npos){
+        line = line.substr(0, index);
+      }
       if(line.empty()) continue;
-      uint64_t index = line.find("=");
+      index = line.find("=");
       JASSERT(index != std::string::npos).Text("Invalid config file syntax.");
       option = line.substr(0, index);
       value = line.substr(index+1, line.length());
