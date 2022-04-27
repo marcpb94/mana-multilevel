@@ -83,6 +83,7 @@
 #define ENV_VAR_GLOBAL_CKPT_DIR     "DMTCP_CKPT_DIR_GLOBAL"
 #define ENV_VAR_LOCAL_CKPT_DIR      "DMTCP_CKPT_DIR_LOCAL"
 #define ENV_VAR_TEST_MODE           "DMTCP_TEST_MODE"
+#define ENV_VAR_CONFIG_FILE         "DMTCP_CONFIG_FILE"
 #define ENV_VAR_TMPDIR              "DMTCP_TMPDIR"
 #define ENV_VAR_CKPT_OPEN_FILES     "DMTCP_CKPT_OPEN_FILES"
 #define ENV_VAR_ALLOW_OVERWRITE_WITH_CKPTED_FILES \
@@ -139,6 +140,7 @@
   ENV_VAR_GLOBAL_CKPT_DIR,            \
   ENV_VAR_LOCAL_CKPT_DIR,             \
   ENV_VAR_TEST_MODE                   \
+  ENV_VAR_CONFIG_FILE                 \
   ENV_VAR_TMPDIR,                     \
   ENV_VAR_CKPT_OPEN_FILES,            \
   ENV_VAR_QUIET,                      \
@@ -183,7 +185,8 @@
 
 #define CKPT_LOCAL 0
 #define CKPT_PARTNER 1
-#define CKPT_GLOBAL 2
+#define CKPT_SOLOMON 2
+#define CKPT_GLOBAL 3
 
 #define HOSTNAME_MAXSIZE 50
 

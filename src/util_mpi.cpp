@@ -1,4 +1,6 @@
 #include "util_mpi.h"
+#include "galois.h"
+
 
 static UtilsMPI *_inst = NULL;
 
@@ -20,14 +22,14 @@ UtilsMPI::instance(){
 }
 
 void
-UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
+UtilsMPI::getSystemTopology(ConfigInfo *cfg, Topology **topo)
 {
   char *hostname;
   int num_nodes;
   int mpi_size, mpi_rank;
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-  hostname = getHostName(test_mode);
+  hostname = getHostName(cfg);
   num_nodes = 0;
   //allocate enough memory for all hostnames
   char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
@@ -67,6 +69,11 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
 
   int node_size = mpi_size / num_nodes;
 
+  if (node_size != cfg->nodeSize && _rank == 0){
+    printf("Real node size(%d) does not match specified value(%d), is this intended?\n", node_size, cfg->nodeSize);
+    fflush(stdout);
+  }
+
   // We first want to create an inverse node-process mapping as that done in Topology. There, nodeMap[i] linked
   // the ith process to the ith node in nameList. Instead, we want that in inverseNodeMap the node is indicated 
   // by the position in the array (e.g. the first n processes correspond to the first node, the next n processes
@@ -98,7 +105,7 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   // Now all processes are nicely organized in inverseNodeMap depending on the node to which they belong. 
   // We want now to group different processes correponding to different nodes with a size set by group_size
   // and create communicators around them.
-  int group_size=4;
+  int group_size = cfg->groupSize;
   MPI_Group newGroup, origGroup;
   MPI_Comm group_comm;
   int group_rank;
@@ -107,6 +114,9 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
   int section_ID = my_node / group_size;
   int buf = section_ID*group_size*node_size;
   int group[group_size];
+
+  // Make sure that group size is multiple of the node size
+  JASSERT(num_nodes % group_size == 0)(num_nodes)(group_size).Text("The number of nodes must be multiple of the group size.");
 
   // We have to find where our process is located in inverseNodeMap. We already now it corresponds to node nodeMap[mpi_rank]
   int pos;
@@ -155,15 +165,15 @@ UtilsMPI::getSystemTopology(int test_mode, Topology **topo)
 }
 
 char *
-UtilsMPI::getHostName(int test_mode)
+UtilsMPI::getHostName(ConfigInfo *cfg)
 {
   char *hostName = (char *)malloc(HOSTNAME_MAXSIZE);
-  if(!test_mode){
+  if(!cfg->testMode){
     JASSERT(gethostname(hostName, HOSTNAME_MAXSIZE) == 0) (JASSERT_ERRNO);
   }
   else {
     //fake node size for testing purposes
-    int node_size = 2;
+    int node_size = cfg->nodeSize;
     sprintf(hostName, "node%d", _rank/node_size);
   }
   return hostName;
@@ -174,7 +184,6 @@ UtilsMPI::assistPartnerCopy(string ckptFilename, Topology *topo){
   
   printf("Rank %d | Group rank %d: performing recovery for partner group rank %d...\n", _rank, topo->groupRank, topo->left);
   fflush(stdout);
-  
   
   string partnerCkptFile = ckptFilename;
   string partnerChksum = ckptFilename + "_md5chksum";
@@ -260,7 +269,7 @@ UtilsMPI::recoverFromPartnerCopy(string ckptFilename, Topology *topo){
 
 void
 UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
-  
+
   if (_rank == 0){
     printf("Performing partner copy...\n");
     fflush(stdout);
@@ -344,6 +353,180 @@ UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
   JASSERT(close(fd_m) == 0);
   JASSERT(close(fd_p_chksum) == 0);
   JASSERT(close(fd_m_chksum) == 0);
+}
+
+void 
+UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
+  // Group rank 0 is the process that will perform RS encoding from the blocks of ckpt image the other processes send him.
+  // After each block of encoded ckpt file has been calculated, group rank 0 sends to the other processes their corresponding part.
+
+  if(topo->groupRank==0){
+    printf("Performing RS encoding...\n");
+    fflush(stdout);
+  }
+
+  string encodedFilename = ckptFilename + "_encoded";
+
+  int fd_m = open(ckptFilename.c_str(), O_RDONLY);
+  JASSERT(fd_m != -1);
+
+  int fd_e = open(encodedFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  JASSERT(fd_e != -1);
+
+  struct stat sb;
+  JASSERT(fstat(fd_m, &sb) == 0);
+  off_t myCkptFileSize = sb.st_size;
+
+  int i;
+  off_t ckptFileSizes[topo->groupSize];
+  if(topo->groupRank==0){
+    ckptFileSizes[0]=myCkptFileSize;
+    for(i=1;i<topo->groupSize;i++){
+      MPI_Recv(&(ckptFileSizes[i]),sizeof(off_t),MPI_CHAR,i,0,topo->groupComm,MPI_STATUS_IGNORE);
+    }
+  }else{
+    MPI_Send(&myCkptFileSize,sizeof(off_t),MPI_CHAR,0,0,topo->groupComm);
+  }
+  off_t maxSize;
+  if(topo->groupRank==0){
+    maxSize = ckptFileSizes[0];
+    for(i=1;i<topo->groupSize;i++){
+      if(ckptFileSizes[i]>maxSize){
+        maxSize=ckptFileSizes[i];
+      }
+    }
+    for(i=1;i<topo->groupSize;i++){
+      MPI_Send(&maxSize,sizeof(off_t),MPI_CHAR,i,0,topo->groupComm);
+    }
+  }else{
+    MPI_Recv(&maxSize,sizeof(off_t),MPI_CHAR,0,0,topo->groupComm,MPI_STATUS_IGNORE);
+  }
+
+
+  // Now we have to elongate every ckpt file so that everyone has the same size. Their size is going to be maxSize+sizeof(off_t). 
+  // Except that the size of each file has to be a multiple of w*machine_word_size, so we also have to round in this way
+
+  off_t final_size = maxSize+sizeof(off_t);
+
+  JASSERT(close(fd_m) == 0);
+  if(truncate(ckptFilename.c_str(),final_size) == -1){
+    JASSERT(0).Text("Error with truncation on ckpt image.\n");
+  }
+  
+  // Now we will write the original size of the ckpt to the end of the elongated file, so that at restart we can recover 
+  // the original ckpt image
+
+  fd_m = open(ckptFilename.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR); // TODO I'm not sure of the right flags needed
+  JASSERT(fd_m != -1);
+  if(lseek(fd_m, -sizeof(off_t), SEEK_END) == -1){
+    JASSERT(0).Text("Unable to seek in file.\n");
+  }
+  if(write(fd_m,&myCkptFileSize,sizeof(off_t)) == -1){
+    JASSERT(0).Text("Unable to write ckpt file size in elongated file.\n");
+  }
+  
+  // Now let us turn to the actual encoding. 
+
+  // We initialize the matrix. For now we will take a Cauchy matrix with X the first topo->groupSize elements of GF(2^w) and
+  // Y the next topo->groupSize elements of GF(2^w). We build the matrix using GF(2^w).
+
+  
+  int *matrix;
+  if(topo->groupRank==0){
+    matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
+    int j;
+    int X[topo->groupSize], Y[topo->groupSize];
+    for(j=0;j<topo->groupSize;j++){
+      X[j]=j;
+    }
+    for(j=topo->groupSize;j<2*topo->groupSize;j++){
+      Y[j]=j;
+    }
+    for(i=0;i<topo->groupSize;i++){
+      for(j=0;j<topo->groupSize;j++){
+        matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[i]+Y[j])%16,4);
+      }
+    }
+  }
+  
+  int blockSize = 32; //TODO: is it ok with 32 (bytes)? At each iteration groupRank 0 is going to receive a total size of blockSize bytesfrom each process
+  
+  fd_m = open(ckptFilename.c_str(), O_RDONLY);
+  JASSERT(fd_m != -1);
+  
+  char *encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
+                       // respective processes
+  char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
+  char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
+  
+  if(topo->groupRank==0){
+    encodedBlocks = (char*)malloc(blockSize*topo->groupSize);
+    encodedBlock = (char*)malloc(blockSize);
+    dataBlock = (char*)malloc(blockSize);
+  }else{
+    encodedBlock = (char*)malloc(blockSize);
+    dataBlock = (char*)malloc(blockSize);
+  }
+
+  int pos = 0;
+  int end=(final_size/blockSize)*blockSize;
+  if(end<final_size){
+    end += blockSize;
+  }
+  
+  while(pos<end){
+    // We are going to generate topo->groupSize encoded ckpt images
+    
+    // We first deal with the part of the ckpt image we already have at groupRank 0
+    
+    if(topo->groupRank==0){
+      Util::readAll(fd_m,dataBlock,blockSize);
+      for(i=0;i<topo->groupSize;i++){
+        int j;
+        int matrix_element = matrix[i*topo->groupSize];
+        for(j=0;j<blockSize;j++){
+          encodedBlocks[i*blockSize+j]=galois_single_multiply(matrix_element,dataBlock[j], 4);
+          //TODO instead of using single operation, use region
+        }
+      }
+    }
+
+    // Now let us deal with the part of the ckpt images from the other processes
+    if(topo->groupRank==0){
+      int k;
+      for(k=1;k<topo->groupSize;k++){
+        // We need to retrieve a block of raw ckpt image from process k
+        MPI_Recv(dataBlock,blockSize,MPI_CHAR,k,0,topo->groupComm,MPI_STATUS_IGNORE);
+
+        for(i=0;i<topo->groupSize;i++){
+          int j;
+          int matrix_element = matrix[i*topo->groupSize+k];
+          for(j=0;j<blockSize;j++){
+            encodedBlocks[i*blockSize+j]= (encodedBlocks[i*blockSize+j]+galois_single_multiply(matrix_element,dataBlock[j], 4)) %16;
+            //TODO instead of using single operation, use region
+          }
+        } 
+      }
+    }else{
+      Util::readAll(fd_m,dataBlock,blockSize);
+      MPI_Send(dataBlock,blockSize,MPI_CHAR,0,0,topo->groupComm);
+    }
+
+    // Now we have to retrieve and store in file the encoded ckpt images
+    MPI_Scatter(encodedBlocks,blockSize,MPI_CHAR,encodedBlock,blockSize,MPI_CHAR,0,topo->groupComm);
+    Util::writeAll(fd_e,encodedBlock,blockSize);
+
+
+    pos +=blockSize;
+  }
+
+  if(topo->groupRank==0){
+    free(matrix);
+    free(encodedBlocks);
+    free(dataBlock);
+  }else{
+    free(encodedBlock);
+  }
 }
 
 char*
@@ -482,13 +665,10 @@ UtilsMPI::isCkptValid(const char *filename){
   Area area;
   size_t END_OF_CKPT = -1;
   ssize_t bytes_read;
-  int skip_update;
   int num_updates = 0;
   MD5_Init(&context);
   char *addr_tmp = (char *)malloc(MEM_TMP_SIZE);
   while (Util::readAll(fd, &area, sizeof(area)) == sizeof(area)){
-    skip_update = 0;
-
     //if -1 size found, we are finished
     if (area.size == END_OF_CKPT) break;
 
@@ -539,22 +719,6 @@ UtilsMPI::isCkptValid(const char *filename){
       toRead -= chunkSize;
       num_updates++;
     }
-
-      //if (_rank == 0){
-        //testing
-      //  printf("Rank: %d, checksum(%d): ", _rank,  num_updates);
-      //  if(num_updates == 10){
-      //    printf("area name: %s, prot: %d\n", area.name, area.prot);
-      //  }
-      //  MD5_Final(digest, &context);
-      //  for(int i = 0; i < 16; i++){
-      //    printf("%x", digest[i]);
-      //  }
-      //  printf("\n");
-      
-        //TEST, REMOVE AFTERWARDS
-      //  MD5_Init(&context);
-      //}
 
   }
 
@@ -622,7 +786,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
             //check if our partner ckpt is valid
             printf("Rank %d | Group rank %d: Partner group rank %d requested assist with partner copy.\n", _rank, topo->groupRank, topo->left);
             fflush(stdout);
-            int partnerCkptValid = 0, placeholder;
+            int partnerCkptValid = 0;
             char *partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
             if(partnerCkpt != NULL){
               partnerCkptValid = isCkptValid(partnerCkpt);
@@ -735,7 +899,7 @@ UtilsMPI::recoverFromCrash(ConfigInfo *cfg){
     restartInfo->readRestartInfo();
 
     //get system topology
-    getSystemTopology(cfg->testMode, &topo);
+    getSystemTopology(cfg, &topo);
 
     //recovery prioritizing by time of checkpoint
     while(found && !valid){

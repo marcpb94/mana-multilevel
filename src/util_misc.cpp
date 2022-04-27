@@ -786,13 +786,17 @@ Util::allowGdbDebug(int currentDebugLevel)
   }
 }
 
+//default ConfigInfo values
 ConfigInfo::ConfigInfo() {
   globalCkptDir = "";
   localCkptDir = "";
   globalInterval = 0;
+  solomonInterval = 0;
   partnerInterval = 0;
   localInterval = 0;
   testMode = 0;
+  nodeSize = 1;
+  groupSize = 4;
 }
 
 void
@@ -828,6 +832,16 @@ ConfigInfo::readConfigFromFile(std::string filename){
         catch (std::exception& e){
           JASSERT(false).Text("Error parsing global checkpoint interval.");
         }
+        JASSERT(globalInterval >= 0)(globalInterval).Text("Invalid global checkpoint interval.");
+      }
+      else if (option == SOLOMON_CKPT_INT_OPTION){
+        try {
+          solomonInterval = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing Reed-Solomon checkpoint interval.");
+        }
+        JASSERT(solomonInterval >= 0)(solomonInterval).Text("Invalid Reed-Solomon checkpoint interval.");
       }
       else if (option == PARTNER_CKPT_INT_OPTION){
         try {
@@ -836,6 +850,7 @@ ConfigInfo::readConfigFromFile(std::string filename){
         catch (std::exception& e){
           JASSERT(false).Text("Error parsing partner checkpoint interval.");
         }
+        JASSERT(partnerInterval >= 0)(partnerInterval).Text("Invalid partner checkpoint interval.");
       }
       else if (option == LOCAL_CKPT_INT_OPTION){
         try {
@@ -844,6 +859,7 @@ ConfigInfo::readConfigFromFile(std::string filename){
         catch (std::exception& e){
           JASSERT(false).Text("Error parsing local checkpoint interval.");
         }
+        JASSERT(localInterval >= 0)(localInterval).Text("Invalid local checkpoint interval.");
       }
       else if (option == TEST_MODE_OPTION){
         try {
@@ -853,6 +869,24 @@ ConfigInfo::readConfigFromFile(std::string filename){
           JASSERT(false).Text("Error parsing test mode.");
         }
         JASSERT(testMode == 0 || testMode == 1)(testMode).Text("Invalid test mode.");
+      }
+      else if (option == NODE_SIZE_OPTION){
+        try {
+          nodeSize = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing node size.");
+        }
+        JASSERT(nodeSize > 0)(nodeSize).Text("Invalid node size.");
+      }
+      else if (option == GROUP_SIZE_OPTION){
+        try {
+          groupSize = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing group size.");
+        }
+        JASSERT(groupSize > 0)(groupSize).Text("Invalid group size.");
       }
       else {
         JASSERT(false)(option).Text("Invalid config option.");

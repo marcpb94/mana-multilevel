@@ -36,9 +36,10 @@ public:
   UtilsMPI();
   int getRank() const { return _rank; }
   int getSize() const { return _size; }
-  char* getHostName(int test_mode);
-  void getSystemTopology(int test_mode, Topology **topo);
+  char* getHostName(ConfigInfo *cfg);
+  void getSystemTopology(ConfigInfo *cfg, Topology **topo);
   void performPartnerCopy(string ckptFilename, Topology *topo);
+  void performRSEncoding_w16(string ckptFilename, Topology *topo);
   int checkCkptValid(int ckpt_type, string dir, Topology *topo);
   int isCkptValid(const char *filename);
   int assistPartnerCopy(string ckptFilename, Topology *topo);

@@ -311,16 +311,10 @@ ProcessInfo::init()
  
   _ckptType = tmp_type;
 
-  char *test = getenv(ENV_VAR_TEST_MODE);
-  if(test != NULL){
-    JASSERT(strlen(test) == 1 && 
-		(test[0] == '0' || test[0] == '1'))(test)
-		.Text("Invalid test mode env var.");
-    
-    _testMode = atoi(test);
-  }
-  else {
-    _testMode = 0;
+  char *cfg_file = getenv(ENV_VAR_CONFIG_FILE);
+  _cfg = new ConfigInfo();
+  if(cfg_file != NULL){
+    _cfg->readConfigFromFile(std::string(cfg_file));
   }
 }
 
@@ -479,9 +473,12 @@ ProcessInfo::updateCkptDirFileSubdir(string newCkptDir)
       JASSERT(false).Text("Checkpoint env var not defined.");
     }
     ckptDir = dir;
-    //add additional prefix if partner copy
+    //add additional prefix if necessary
     if (_ckptType == CKPT_PARTNER) {
       ckptDir = ckptDir + "/partner/";
+    }
+    if (_ckptType == CKPT_SOLOMON) {
+      ckptDir = ckptDir + "/solomon/";
     }
 
     //create dir if needed

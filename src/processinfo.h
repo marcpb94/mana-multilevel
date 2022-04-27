@@ -165,8 +165,8 @@ class ProcessInfo
     void updateCkptDirFileSubdir(string newCkptDir = "");
     uint32_t getCkptType(void) const { return _ckptType; }
     void setCkptType(int ckpt_type) { _ckptType = ckpt_type; }
-    uint32_t getTestMode(void) const { return _testMode; }
-    void setTestMode(uint32_t mode) { _testMode = mode; }
+    ConfigInfo *getConfig(void) const { return _cfg; }
+    void setConfig(ConfigInfo *cfg) { _cfg = cfg; }
     void setTopology(Topology *topo);
     int getNumNodes() const { return _topo->numNodes; }
     char *getNameList() const { return _topo->nameList; }
@@ -208,7 +208,8 @@ class ProcessInfo
     string _launchCWD;
     string _ckptCWD;
 
-    uint32_t _testMode;
+    //configuration
+    ConfigInfo *_cfg;
 
     //topology information
     Topology *_topo;
