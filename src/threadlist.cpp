@@ -577,10 +577,7 @@ checkpointhread(void *dummy)
       if(UtilsMPI::instance().getRank() == 0){
         printf("Post-processing took %.3f seconds.\n", post_time_sec);
       }
-    }
-
-    // TODO: Just for now, we will turn local ckpt into RS encoding, so as to focus only on this part, and not inserting it as a new level
-    if(ckpt_type == CKPT_LOCAL){
+    }else if(ckpt_type == CKPT_SOLOMON){
       uint64_t post_start = getRealCurrTime();
       CkptSerializer::performRSEncoding();
       uint64_t post_time = (getRealCurrTime() - post_start)/1000;
