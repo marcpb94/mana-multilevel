@@ -471,25 +471,23 @@ UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
     }
   }
   
-  int blockSize = 1024; 
+  int blockSize = 1024*1024; 
   
   fd_m = open(ckptFilename.c_str(), O_RDONLY);
   JASSERT(fd_m != -1);
   
-  int *encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
+  char *encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
                        // respective processes
   char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
-  int *encodedBlock_int; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
+  char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
   char *encodedBlock_char;
 
   if(topo->groupRank==0){
-    encodedBlocks = (int*)malloc(blockSize*topo->groupSize*sizeof(int));
-    encodedBlock_int = (int*)malloc(blockSize*sizeof(int));
-    encodedBlock_char = (char*)malloc(blockSize);
+    encodedBlocks = (char*)malloc(blockSize*topo->groupSize);
+    encodedBlock = (char*)malloc(blockSize);
     dataBlock = (char*)malloc(blockSize);
   }else{
-    encodedBlock_int = (int*)malloc(blockSize*sizeof(int));
-    encodedBlock_char = (char*)malloc(blockSize);
+    encodedBlock = (char*)malloc(blockSize);
     dataBlock = (char*)malloc(blockSize);
   }
 
@@ -508,12 +506,7 @@ UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
       for(i=0;i<topo->groupSize;i++){
         int j;
         int matrix_element = matrix[i*topo->groupSize];
-        for(j=0;j<blockSize;j++){
-          encodedBlocks[i*blockSize+j]=galois_single_multiply(matrix_element,static_cast<int>(128+dataBlock[j]), w);
-          /* printf("encodedBlock: %u\n", encodedBlocks[i]);
-          fflush(stdout); */
-          //TODO instead of using single operation, use region
-        }
+        galois_w08_region_multiply(dataBlock, matrix_element,blockSize,&(encodedBlocks[i*blockSize]),0);        
       }
     }
 
@@ -528,16 +521,7 @@ UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
         for(i=0;i<topo->groupSize;i++){
           int j;
           int matrix_element = matrix[i*topo->groupSize+k];
-          for(j=0;j<blockSize;j++){
-            encodedBlocks[i*blockSize+j]= (encodedBlocks[i*blockSize+j]^galois_single_multiply(matrix_element,static_cast<int>(128+dataBlock[j]), w));
-            /* printf("encodedBlock: %u\n", encodedBlocks[i]);
-            fflush(stdout); */
-            //TODO instead of using single operation, use region
-          }
-        /*   int c;
-          for(c=0;c<blockSize;c++){}
-            fflush(stdout);
-          } */
+          galois_w08_region_multiply(dataBlock, matrix_element,blockSize,&(encodedBlocks[i*blockSize]),1);
         } 
       }
     }else{
@@ -546,11 +530,8 @@ UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
     }
 
     // Now we have to retrieve and store in file the encoded ckpt images
-    MPI_Scatter(encodedBlocks,blockSize,MPI_INT,encodedBlock_int,blockSize,MPI_INT,0,topo->groupComm);
-    for(i=0;i<blockSize;i++){
-      encodedBlock_char[i] = static_cast<char>(-128+encodedBlock_int[i]);
-    }
-    Util::writeAll(fd_e,encodedBlock_char,blockSize);
+    MPI_Scatter(encodedBlocks,blockSize,MPI_CHAR,encodedBlock,blockSize,MPI_CHAR,0,topo->groupComm);
+    Util::writeAll(fd_e,encodedBlock,blockSize);
     pos +=blockSize;
   }
   close(fd_e);
@@ -560,8 +541,7 @@ UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
     free(encodedBlocks);
     free(dataBlock);
   }else{
-    free(encodedBlock_int);
-    free(encodedBlock_char);
+    free(encodedBlock);
   }
 
   //read checkpoint file as pure data just to compute checksum
@@ -686,11 +666,10 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
 
   int blockSize = 1024*1024; 
   
-  int *restoredBlocks; // Group rank 0 is going to temporarily store the piece of recovered ckpt images before sending them to
+  char *restoredBlocks; // Group rank 0 is going to temporarily store the piece of recovered ckpt images before sending them to
                         // their respective processes
   char *dataBlock; 
-  int *restoredBlock_int; // The to_recover processes will keep getting pieces of their recovered ckpt files
-  char *restoredBlock_char;
+  char *restoredBlock; // The to_recover processes will keep getting pieces of their recovered ckpt files
 
   int num_to_recover = topo->groupSize-total_succes_raw;
 
@@ -699,14 +678,13 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
   int fd_m,fd_e;
 
   if(topo->groupRank==0){
-    restoredBlocks = (int*)malloc(blockSize*num_to_recover*sizeof(int));
+    restoredBlocks = (char*)malloc(blockSize*num_to_recover);
     dataBlock = (char*)malloc(blockSize);
   }
   int i;
   for(i=0;i<num_to_recover;i++){
     if(topo->groupRank==to_recover[i]){
-      restoredBlock_int =  (int*)malloc(blockSize*sizeof(int));
-      restoredBlock_char =  (char*)malloc(blockSize);
+      restoredBlock =  (char*)malloc(blockSize);
     }
   }
   for(i=0;i<topo->groupSize;i++){
@@ -754,12 +732,10 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
           for(j=0;j<num_to_recover;j++){
             int matrix_element = inverse_matrix[to_recover[j]*topo->groupSize+i];
             int k;
-            for(k=0;k<blockSize;k++){
-              if(i==0){
-                restoredBlocks[j*blockSize+k] = galois_single_multiply(matrix_element,static_cast<int>(128+dataBlock[k]),w);
-              }else{
-                restoredBlocks[j*blockSize+k] = restoredBlocks[j*blockSize+k]^galois_single_multiply(matrix_element,static_cast<int>(128+dataBlock[k]),w);
-              }
+            if(i==0){
+              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),0);
+            }else{
+              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),1);
             }
           }
         }else if(survivors[i]>=topo->groupSize){
@@ -772,12 +748,10 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
           for(j=0;j<num_to_recover;j++){
             int matrix_element = inverse_matrix[to_recover[j]*topo->groupSize+i];
             int k;
-            for(k=0;k<blockSize;k++){
-              if(i==0){
-                restoredBlocks[j*blockSize+k]=galois_single_multiply(matrix_element,static_cast<int>(128+dataBlock[k]),w);
-              }else{
-                restoredBlocks[j*blockSize+k] = restoredBlocks[j*blockSize+k]^galois_single_multiply(matrix_element,static_cast<int>(128+dataBlock[k]),w);
-              }
+            if(i==0){
+              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),0);
+            }else{
+              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),1);
             }
           }
         }
@@ -800,23 +774,15 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     for(i=0;i<num_to_recover;i++){
       if(to_recover[i]==0){
         if(topo->groupRank==0){
-          int c;
-          for(c=0;c<blockSize;c++){
-            restoredBlock_char[c] = static_cast<char>(-128+restoredBlocks[i*blockSize+c]);
-          }
-          Util::writeAll(fd_m,restoredBlock_char,blockSize);
+          Util::writeAll(fd_m,&(restoredBlocks[i*blockSize]),blockSize);
         }
       }else{
         if(topo->groupRank==0){
-          MPI_Send(&(restoredBlocks[i*blockSize]),blockSize,MPI_INT,to_recover[i],0,topo->groupComm);
+          MPI_Send(&(restoredBlocks[i*blockSize]),blockSize,MPI_CHAR,to_recover[i],0,topo->groupComm);
         }else{
           if(topo->groupRank==to_recover[i]){
-            MPI_Recv(restoredBlock_int,blockSize,MPI_INT,0,0,topo->groupComm,MPI_STATUS_IGNORE);
-            int c;
-            for(c=0;c<blockSize;c++){
-              restoredBlock_char[c] = static_cast<char>(-128+restoredBlock_int[c]);
-            }
-            Util::writeAll(fd_m,restoredBlock_char,blockSize);
+            MPI_Recv(restoredBlock,blockSize,MPI_CHAR,0,0,topo->groupComm,MPI_STATUS_IGNORE);
+            Util::writeAll(fd_m,restoredBlock,blockSize);
           }
         }
       }
@@ -832,8 +798,7 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
   }
   for(i=0;i<num_to_recover;i++){
     if(topo->groupRank==to_recover[i]){
-      free(restoredBlock_int);
-      free(restoredBlock_char);
+      free(restoredBlock);
     }
   }
 
