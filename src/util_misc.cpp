@@ -805,6 +805,7 @@ ConfigInfo::readConfigFromFile(std::string filename){
   std::ifstream configFile(filename);
   if(configFile.is_open()){
     while (std::getline(configFile, line)){
+      //trim space on the left
       while(line.length() > 0 && (line[0] == ' ' || line[0] == '\t')){
         line.erase(0,1);
       }
@@ -813,7 +814,11 @@ ConfigInfo::readConfigFromFile(std::string filename){
       if(index != std::string::npos){
         line = line.substr(0, index);
       }
-      if(line.empty()) continue;
+      //trim spaces on the right
+      while(line.length() > 0 && (line[line.length()-1] == ' ' || line[line.length()-1] == '\t')){
+        line.erase(line.length()-1,1);
+      }
+      if(line.empty()) continue;      
       index = line.find("=");
       JASSERT(index != std::string::npos).Text("Invalid config file syntax.");
       option = line.substr(0, index);
