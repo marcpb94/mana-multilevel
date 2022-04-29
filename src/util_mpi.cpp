@@ -1,6 +1,7 @@
 #include "util_mpi.h"
 #include "galois.h"
 #include <sys/time.h>
+#include <math.h>
 
 
 static UtilsMPI *_inst = NULL;
@@ -368,21 +369,14 @@ UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
 
 void 
 UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
-
+  //findGoodCauchyMatrix(4,8);
   int w = 8;
   // Group rank 0 is the process that will perform RS encoding from the blocks of ckpt image the other processes send him.
   // After each block of encoded ckpt file has been calculated, group rank 0 sends to the other processes their corresponding part.
-  char alpha = -1;
-  int beta = 128;
+  
   if(topo->groupRank==0){
     printf("Performing RS encoding...\n");
     fflush(stdout);
-    /* printf("%d goes to %d\n",alpha,static_cast<int>(alpha)+128);
-    fflush(stdout);
-    printf("%d goes to %d\n",beta,static_cast<char>(beta-128));
-    fflush(stdout);
-    printf("%d goes to %d\n",beta-4,static_cast<int>(beta-4-128));
-    fflush(stdout); */
   }
 
   string encodedFilename = ckptFilename + "_encoded";
@@ -458,12 +452,20 @@ UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
     matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
     int j;
     int X[topo->groupSize], Y[topo->groupSize];
-    for(j=0;j<topo->groupSize;j++){
+    /* for(j=0;j<topo->groupSize;j++){
       X[j]=j;
     }
     for(j=topo->groupSize;j<2*topo->groupSize;j++){
       Y[j%topo->groupSize]=j;
-    }
+    } */
+    X[0]=1;
+    X[1]=2;
+    X[2]=244;
+    X[3]=247;
+    Y[0]=0;
+    Y[1]=3;
+    Y[2]=245;
+    Y[3]=246;
     for(i=0;i<topo->groupSize;i++){
       for(j=0;j<topo->groupSize;j++){
         matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[i]^Y[j]),w);
@@ -471,7 +473,7 @@ UtilsMPI::performRSEncoding_w16(string ckptFilename, Topology* topo){
     }
   }
   
-  int blockSize = 1024*1024; 
+  int blockSize = 256*1024; 
   
   fd_m = open(ckptFilename.c_str(), O_RDONLY);
   JASSERT(fd_m != -1);
@@ -607,12 +609,20 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
     int j;
     int X[topo->groupSize], Y[topo->groupSize];
-    for(j=0;j<topo->groupSize;j++){
+    /* for(j=0;j<topo->groupSize;j++){
       X[j]=j;
     }
     for(j=topo->groupSize;j<2*topo->groupSize;j++){
       Y[j%topo->groupSize]=j;
-    } 
+    } */
+    X[0]=1;
+    X[1]=2;
+    X[2]=244;
+    X[3]=247;
+    Y[0]=0;
+    Y[1]=3;
+    Y[2]=245;
+    Y[3]=246; 
     int i;
     for(i=0;i<topo->groupSize;i++){
       if(survivors[i]<topo->groupSize){
@@ -664,7 +674,7 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     MPI_Bcast(&ckptFileSize,sizeof(off_t),MPI_CHAR,survivors[0]-topo->groupSize,topo->groupComm);
   }
 
-  int blockSize = 1024*1024; 
+  int blockSize = 256*1024; 
   
   char *restoredBlocks; // Group rank 0 is going to temporarily store the piece of recovered ckpt images before sending them to
                         // their respective processes
@@ -1508,4 +1518,151 @@ UtilsMPI::jerasure_invert_matrix(int *mat, int *inv, int rows, int w)
     }
   }
   return 0;
+}
+
+unsigned int UtilsMPI::countSetBits(unsigned char n)
+{
+    unsigned int count = 0;
+    while (n) {
+        count += n & 1;
+        n >>= 1;
+    }
+    return count;
+}
+
+void UtilsMPI::setMatrixOnes(int* matrix, int w){
+  int num_elem = exp2(w);
+  int i,j,k;
+  int val;
+  for(i = 0;i<num_elem;i++){
+    for(j=0;j<i;j++){
+      val = galois_single_divide(1,i^j,w);
+      matrix[i*num_elem+j] = countSetBits(val);
+      for(k=1;k<w;k++){
+        val = galois_single_multiply(val,2,w);
+        matrix[i*num_elem+j] += countSetBits(val);
+      }
+    }
+    matrix[i*num_elem+i] = 0;
+    for(j=i+1;j<num_elem;j++){
+      val = galois_single_divide(1,i^j,w);
+      matrix[i*num_elem+j] = countSetBits(val);
+      for(k=1;k<w;k++){
+        val = galois_single_multiply(val,2,w);
+        matrix[i*num_elem+j] += countSetBits(val);
+      }
+    }
+  }
+}
+
+bool isIn(int* vec,int n, int val){
+  int i;
+  for(i=0;i<n;i++){
+    if(val==vec[i]){
+      return true;
+    }
+  }
+  return false;
+}
+
+void UtilsMPI::findGoodCauchyMatrix(int n, int w){
+  int *matrixOnes;
+  int *X,*Y;
+  int num_elem = exp2(w);
+
+  matrixOnes = (int *)malloc(num_elem*num_elem*sizeof(int));
+  setMatrixOnes(matrixOnes,w);
+
+  // The current implementation will only work with n being a power of 2. We follow the algorithm sketched by Plank's paper
+  // Therefore, in order to obtain GC(n,n,w) for n being a power of 2 different than 2 itself, we have to iretatively find GC(n/2,n/2,w)
+
+  // As per the paper, we already start with X={1,2} and Y={}
+  X = (int*)malloc(n*sizeof(int));
+  Y = (int*)malloc(n*sizeof(int));
+
+  X[0]=1;
+  X[1]=2;
+
+  // At least we are going to have a first step where we want to find GC(2,2,w)
+  int i,j;
+  int k;
+  int numZeros = 4*w*w+1; // The maximum number of zeros is going to be 4*w*w
+  int tmpSum;
+  for(i=0;i<num_elem;i++){
+    if(isIn(X,2,i)){
+      continue;
+    }
+    for(j=i+1;j<num_elem;j++){
+      if(isIn(X,2,j)){
+        continue;
+      }
+      tmpSum = 0;
+      tmpSum += matrixOnes[i*num_elem+1];
+      tmpSum += matrixOnes[i*num_elem+2];
+      tmpSum += matrixOnes[j*num_elem+1];
+      tmpSum += matrixOnes[j*num_elem+2];
+      if(tmpSum<numZeros){
+        Y[0] = i;
+        Y[1] = j;
+        numZeros = tmpSum;
+      }
+    }
+  }
+
+  // Now we have to find GC(4,4,w). At this point we have X={1,2} and Y={k1,k2} with some k1,k2 in GF(2^w)
+
+  int l,m;
+  int p,q;
+
+  numZeros = 16*w*w+1; // The maximum number of zeros is going to be 4*w*w
+
+  for(i=0;i<num_elem;i++) {
+    if(isIn(X,2,i)||isIn(Y,2,i)){
+      continue;
+    }
+    for(j=i+1;j<num_elem;j++){
+      if(isIn(X,2,j)||isIn(Y,2,j)){
+        continue;
+      }
+      for(l=0;l<num_elem;l++){
+        if(isIn(X,2,l) || isIn(Y,2,l) || l==i || l==j){
+          continue;
+        }
+        for(m=l+1;m<num_elem;m++){
+          if(isIn(X,2,m) || isIn(Y,2,m) || m==i || m==j){
+            continue;
+          }
+          tmpSum = 0;
+          tmpSum += matrixOnes[Y[0]*num_elem+1]; tmpSum += matrixOnes[Y[0]*num_elem+2]; tmpSum += matrixOnes[Y[0]*num_elem+i]; tmpSum += matrixOnes[Y[0]*num_elem+j];
+          tmpSum += matrixOnes[Y[1]*num_elem+1]; tmpSum += matrixOnes[Y[1]*num_elem+2]; tmpSum += matrixOnes[Y[1]*num_elem+i]; tmpSum += matrixOnes[Y[1]*num_elem+j];
+          tmpSum += matrixOnes[l*num_elem+1]; tmpSum += matrixOnes[l*num_elem+2]; tmpSum += matrixOnes[l*num_elem+i]; tmpSum += matrixOnes[l*num_elem+j];
+          tmpSum += matrixOnes[m*num_elem+1]; tmpSum += matrixOnes[m*num_elem+2]; tmpSum += matrixOnes[m*num_elem+i]; tmpSum += matrixOnes[m*num_elem+j];
+          if(tmpSum<numZeros){
+            X[2] = i;
+            X[3] = j;
+            Y[2] = l;
+            Y[3] = m;
+            numZeros = tmpSum;
+          }
+        }
+      }
+    }
+  }
+
+  printf("X: ");
+  for(i =0;i<4;i++){
+    printf("%d ",X[i]);
+  }
+  printf("\n");
+  printf("Y: ");
+  for(i =0;i<4;i++){
+    printf("%d ",Y[i]);
+  }
+  printf("\n");
+  printf("Sum: %d\n",numZeros);
+  fflush(stdout);
+
+  free(X);
+  free(Y);
+  free(matrixOnes);
 }
