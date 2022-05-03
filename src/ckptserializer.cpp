@@ -505,7 +505,7 @@ CkptSerializer::performRSEncoding()
 {
   string ckptFilename = ProcessInfo::instance().getCkptFilename();
   Topology* topo = ProcessInfo::instance().getTopology();
-  UtilsMPI::instance().performRSEncoding_w16(ckptFilename, topo);
+  UtilsMPI::instance().performRSEncoding(ckptFilename, topo);
 }
 
 void
