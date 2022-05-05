@@ -1,5 +1,6 @@
 #include "util_mpi.h"
 #include "galois.h"
+#include "jerasure.h"
 #include <sys/time.h>
 #include <math.h>
 #include <algorithm>
@@ -370,16 +371,13 @@ UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
 
 void 
 UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
+  int w = 8;
+  // Group rank 0 is the process that will perform RS encoding from the blocks of ckpt image the other processes send him.
+  // After each block of encoded ckpt file has been calculated, group rank 0 sends to the other processes their corresponding part.
   if(topo->groupRank==0){
     printf("Performing RS encoding...\n");
     fflush(stdout);
   }
-
-  int w = 8;
-
-  // Group rank 0 is the process that will perform RS encoding from the blocks of ckpt image the other processes send him.
-  // After each block of encoded ckpt file has been calculated, group rank 0 sends to the other processes their corresponding part.
-
 
   string encodedFilename = ckptFilename + "_encoded";
   string encodedChksum = ckptFilename + "_encoded_md5chksum";
@@ -422,9 +420,18 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   fflush(stdout);
 
   // Now we have to elongate every ckpt file so that everyone has the same size. Their size is going to be maxSize+sizeof(off_t). 
-  // Except that the size of each file has to be a multiple of w*machine_word_size, so we also have to round in this way
+  // Except that the size of each file has to be a multiple of w*sizeof(long), so we also have to round in this way
 
   off_t final_size = maxSize+sizeof(off_t);
+
+  int packetSize = 1024*sizeof(long);
+  int size = w*packetSize;
+
+  if(final_size % (w*packetSize)!=0){
+    printf("final_size: %d not multiple of %d\n",final_size, size);
+    final_size = (final_size / size)*size + size;
+    printf("now final size is %d\n",final_size);
+  }
 
   JASSERT(close(fd_m) == 0);
   if(truncate(ckptFilename.c_str(),final_size) == -1){
@@ -452,7 +459,6 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   int *matrix, *bitmatrix;
   if(topo->groupRank==0){
     matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
-    bitmatrix = (int *)malloc(topo->groupSize*topo->groupSize*w*w*sizeof(int));
     int j;
     int X[topo->groupSize], Y[topo->groupSize];
     /* for(j=0;j<topo->groupSize;j++){
@@ -460,168 +466,117 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     }
     for(j=topo->groupSize;j<2*topo->groupSize;j++){
       Y[j%topo->groupSize]=j;
-    } */
+    }  */
     X[0]=1;
     X[1]=2;
-    /* X[2]=244;
-    X[3]=247; */
+    X[2]=244;
+    X[3]=247;
     Y[0]=0;
     Y[1]=3;
-    /* Y[2]=245;
-    Y[3]=246; */
-    uint64_t start = getRealCurrTime();
+    Y[2]=245;
+    Y[3]=246;
     for(i=0;i<topo->groupSize;i++){
       for(j=0;j<topo->groupSize;j++){
         matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[i]^Y[j]),w);
       }
     }
-    uint64_t total = (getRealCurrTime() - start)/1000;
-    double total_sec = ((double)total)/1000;
-    //printf("Matrix calculation took %.3f seconds.\n", total_sec);
-    fflush(stdout);
-    start = getRealCurrTime();
-    convertMatrixToBitmatrix(matrix,bitmatrix,topo->groupSize,w);
-    /* for(int q=0;q<topo->groupSize*w;q++){
-      for(int r=0;r<topo->groupSize*w;r++){
-        printf("%d ", bitmatrix[q]);
-      }
-      printf("\n");
-    }
-    fflush(stdout); */
-    /* for(int q = 0;q<topo->groupSize*topo->groupSize*w*w;q++){
-      printf("%d ", bitmatrix[q]);
-    }
-    fflush(stdout); */
-    total = (getRealCurrTime() - start)/1000;
-    total_sec = ((double)total)/1000;
-    printf("Matrix conversion to bitmatrix took %.3f seconds.\n", total_sec);
-    fflush(stdout);
+    //jerasure_print_matrix(matrix,4,4,8);
+    bitmatrix = jerasure_matrix_to_bitmatrix(topo->groupSize,topo->groupSize,w,matrix);
   }
-  
-  int blockSize = 256*1024; 
   
   fd_m = open(ckptFilename.c_str(), O_RDONLY);
   JASSERT(fd_m != -1);
   
-  char *encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
-                       // respective processes
   char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
-  unsigned char *dataBlockBits;
+  char **dataBlocks;
+  char **encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
+                         // respective processes
   char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
-  unsigned char *encodedBlocksBits; 
-  char *encodedBlock_char;
+  /* unsigned char *udataBlock;
+  unsigned char **udataBlocks;
+  unsigned char **uencodedBlocks;
+  unsigned char *uencodedBlock; */
+
+  /* if(topo->groupRank==0){
+    udataBlock = (unsigned char*)malloc(size);
+    udataBlocks = (unsigned char**)malloc(topo->groupSize*sizeof(unsigned char *));
+    uencodedBlock = (unsigned char*)malloc(size);
+    uencodedBlocks = (unsigned char**)malloc(topo->groupSize*sizeof(unsigned char *));
+    for(int i = 0;i<topo->groupSize;i++){
+      udataBlocks[i] = (unsigned char*)malloc(size);
+      uencodedBlocks[i] = (unsigned char*)malloc(size);
+    }
+  }else{
+    udataBlock = (unsigned char*)malloc(size);
+    uencodedBlock = (unsigned char*)malloc(size);
+  } */
 
   if(topo->groupRank==0){
-    encodedBlocks = (char*)malloc(blockSize*topo->groupSize);
-    encodedBlocksBits = (unsigned char*)calloc(blockSize*topo->groupSize*w,1);
-    encodedBlock = (char*)malloc(blockSize);
-    dataBlock = (char*)malloc(blockSize);
-    dataBlockBits = (unsigned char*)malloc(blockSize*w);
+    dataBlock = (char*)malloc(size);
+    dataBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+    encodedBlock = (char*)malloc(size);
+    encodedBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+    for(int i = 0;i<topo->groupSize;i++){
+      dataBlocks[i] = (char*)malloc(size);
+      encodedBlocks[i] = (char*)malloc(size);
+    }
   }else{
-    encodedBlock = (char*)malloc(blockSize);
-    dataBlock = (char*)malloc(blockSize);
+    dataBlock = (char*)malloc(size);
+    encodedBlock = (char*)malloc(size);
   }
 
   int pos = 0;
   while(pos<final_size){
-    if(final_size-pos<blockSize){
-      blockSize=final_size-pos;
-    }
+
     // We are going to generate topo->groupSize encoded ckpt images
     
-    // We first deal with the part of the ckpt image we already have at groupRank 0
+    // We first retrieve the part of the ckpt image we already have at groupRank 0
     if(topo->groupRank==0){
-      Util::readAll(fd_m,dataBlock,blockSize);
-      uint64_t start = getRealCurrTime();
-      charArrayToBits(dataBlock,dataBlockBits,blockSize,w);
-      uint64_t total = (getRealCurrTime() - start)/1000;
-      double total_sec = ((double)total)/1000;
-      printf("Converting char array to bits took %.3f seconds.\n", total_sec);
-      fflush(stdout);
-      int j,k,l;
-      
-      start = getRealCurrTime();
-      for(i=0;i<topo->groupSize;i++){ // Iterates vertically through the n x n nonbit matrix
-        for(j=0;j<w;j++){ // Iterates vertically through the w x w bit submatrix
-          for(k=0;k<w;k++){ // Iterates horizontally through the w x w bit submatrix
-            if(bitmatrix[i*w*w*topo->groupSize+j*w*topo->groupSize+k]){
-              // We are using bit k to store in bit j for encoded ckpt file i
-              
-              /* std::vector<unsigned char> partEncoded(&(encodedBlocksBits[i*blockSize*w+j]),&(encodedBlocksBits[i*blockSize*w+j+l*w]));
-              std::vector<unsigned char> partData(&(dataBlockBits[k]),&(dataBlockBits[l*w+k]));
-              std::transform(partEncoded.begin(), partEncoded.end(), partData.begin(), partEncoded.begin(), std::bit_xor<unsigned char>()); */
-
-              for(l=0;l<blockSize;l++){
-                encodedBlocksBits[i*blockSize*w+l*w+j] = encodedBlocksBits[i*blockSize*w+l*w+j] ^ dataBlockBits[l*w+k];
-              }
-            }
-          }
-        }
-      }
-      total = (getRealCurrTime() - start)/1000;
-      total_sec = ((double)total)/1000;
-      printf("Encoding Piece took %.3f seconds.\n", total_sec);
-      fflush(stdout);
+      Util::readAll(fd_m,dataBlocks[0],size);
     }
 
-    // Now let us deal with the part of the ckpt images from the other processes
+    // Now let us obtain the part of the ckpt images from the other processes
     if(topo->groupRank==0){
-      int s;
-      for(s=1;s<topo->groupSize;s++){
-        // We need to retrieve a block of raw ckpt image from process k
-        MPI_Recv(dataBlock,blockSize,MPI_CHAR,s,0,topo->groupComm,MPI_STATUS_IGNORE);
-        charArrayToBits(dataBlock,dataBlockBits,blockSize,w);
-        int j,k,l;
-        for(i=0;i<topo->groupSize;i++){ // Iterates vertically through the n x n nonbit matrix
-          for(j=0;j<w;j++){ // Iterates vertically through the w x w bit submatrix
-            for(k=0;k<w;k++){ // Iterates horizontally through the w x w bit submatrix
-              if(bitmatrix[i*w*w*topo->groupSize+j*w*topo->groupSize+k+s*w]){
-                // We are using bit k to store in bit j for encoded ckpt file i
-                for(l=0;l<blockSize;l++){
-                  encodedBlocksBits[i*blockSize*w+l*w+j] = encodedBlocksBits[i*blockSize*w+l*w+j] ^ dataBlockBits[l*w+k];
-                }
-              }
-            }
-          }
-        }
+      int k;
+      for(k=1;k<topo->groupSize;k++){
+        MPI_Recv(dataBlocks[k],size,MPI_CHAR,k,0,topo->groupComm,MPI_STATUS_IGNORE);
       }
     }else{
-      Util::readAll(fd_m,dataBlock,blockSize);
-      MPI_Send(dataBlock,blockSize,MPI_CHAR,0,0,topo->groupComm);
+      Util::readAll(fd_m,dataBlock,size);
+      MPI_Send(dataBlock,size,MPI_CHAR,0,0,topo->groupComm);
     }
 
+    // Now we do the encoding
     if(topo->groupRank==0){
-      uint64_t start = getRealCurrTime();
-      bitArrayToChar(encodedBlocksBits,encodedBlocks, topo->groupSize,w);
-      uint64_t total = (getRealCurrTime() - start)/1000;
-      double total_sec = ((double)total)/1000;
-      printf("Converting bit array to char took %.3f seconds.\n", total_sec);
-      fflush(stdout);
+      jerasure_bitmatrix_encode(topo->groupSize,topo->groupSize,w,bitmatrix,dataBlocks,encodedBlocks,size,packetSize);
     }
-
 
     // Now we have to retrieve and store in file the encoded ckpt images
-    MPI_Scatter(encodedBlocks,blockSize,MPI_CHAR,encodedBlock,blockSize,MPI_CHAR,0,topo->groupComm);
-/*     if(topo->groupRank==1){
-      int i;
-      for(i=0;i<blockSize;i++){
-        if(encodedBlock[i]!=0){
-          printf("%d ", encodedBlock[i]);
-          fflush(stdout);
-        }
+    if(topo->groupRank==0){
+      Util::writeAll(fd_e,encodedBlocks[0],size);
+      for(int i=1;i<topo->groupSize;i++){
+        MPI_Send(encodedBlocks[i],size,MPI_CHAR,i,0,topo->groupComm);
       }
-    } */
-    Util::writeAll(fd_e,encodedBlock,blockSize);
-    pos +=blockSize;
+    }else{
+      MPI_Recv(encodedBlock,size,MPI_CHAR,0,0,topo->groupComm,MPI_STATUS_IGNORE);
+      Util::writeAll(fd_e,encodedBlock,size);
+    }
+  
+    pos +=size;
+    MPI_Barrier(topo->groupComm);
   }
   close(fd_e);
 
   if(topo->groupRank==0){
     free(matrix);
-    free(encodedBlocks);
+    free(bitmatrix);
     free(dataBlock);
-    free(dataBlockBits);
-    free(encodedBlocksBits);
+    for(int i = 0;i<topo->groupSize;i++){
+      free(dataBlocks[i]);
+      free(encodedBlocks[i]);
+    }
+    free(dataBlocks);
+    free(encodedBlocks);
   }else{
     free(encodedBlock);
   }
@@ -673,84 +628,10 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   close(fd_e_chksum);
 }
 
-void
-UtilsMPI::charArrayToBits(char *array, unsigned char *bitArray, int n, int w){
-  int i,j;
-  unsigned char power;
-  unsigned char val;
-  for(i=0;i<n;i++){
-    power = 1;
-    val = static_cast<unsigned char>(128+array[i]); // TODO. In principle this works without needing any static_cast<unsigned char>, but I am not sure it will work for every computer
-    /* if(array[i]!=0){
-      printf("abans: %d goes to %d\n",array[i],val);
-      fflush(stdout);
-    } */
-    /* printf("despres: %d goes to ",val); */
-    for(j=0;j<w;j++){
-      bitArray[i*w+j] = ((val & power) == 0) ? 0 : 1; 
-      //printf("%d goes to %d\n",array[i],static_cast<unsigned char>(array[i]));
-      //fflush(stdout);
-      power *= 2;
-      /* printf("%d ",bitArray[i*w+j]); */
-    }
-    /* printf("\n");
-    fflush(stdout); */
-  }
-}
-
-void 
-UtilsMPI::bitArrayToChar(unsigned char *bitArray, char* array, int n, int w){
-  int i,j,power;
-  unsigned char val;
-  for(i=0;i<n;i++){
-    power = 1;
-    val = 0;
-    for(j=0;j<w;j++){
-      /* printf("%d ", bitArray[i*w+j]); */
-      val += bitArray[i*w+j]*power;
-      power *= 2;
-    }
-    /* printf("goes to %d\n",val);
-    fflush(stdout); */
-    array[i] = static_cast<char>(val)-128;
-    /* if(val!=0){ 
-      printf("hola:%d goes to %d\n",val,array[i]);
-      fflush(stdout);
-    } */  // WORKS
-  }
-}
-
-void UtilsMPI::convertMatrixToBitmatrix(int *matrix, int *bitmatrix, int n, int w){
-  // We assume the matrices have been allocated with the correct sizes
-  int i,j,k,l;
-  int matrix_val;
-  int power;
-  for(i=0;i<n;i++){ // Iterates vertically through the n x n original matrix (still not bit)
-    for(j=0;j<n;j++){ // Iterates horizontally through the n x n original matrix (still not bit)
-      matrix_val = matrix[i*n+j];
-      for(l=0;l<w;l++){ // At each column of the submatrix (bit) for the matrix[i][j] element, we have the bit representation of matrix_val*2^(l)
-        // We obtain the bit representation of matrix_val*2^(l)
-        power = 1;
-        for(k=0;k<w;k++){
-          bitmatrix[i*w*w*n+j*w+k*w*n+l] = ((matrix_val & power) == 0) ? 0 : 1;
-          power *= 2;
-        }
-        matrix_val = galois_single_multiply(matrix_val,2,w);
-      }
-    }
-  }
-  /* for(int q=0;q<n*w;q++){
-    for(int r=0;r<n*w;r++){
-      printf("%d ", bitmatrix[q*n*w+r]);
-    }
-    printf("\n");
-  }
-  fflush(stdout); */
-}
-
-void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover, int total_succes_raw, int *survivors){
-
+void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover, int *erasures, int total_succes_raw, int *survivors){
   int w = 8;
+  int packetSize = 1024*sizeof(long);
+  int size = w*packetSize;
 
   uint64_t post_start;
   if(topo->groupRank==0){
@@ -758,8 +639,9 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     printf("Performing RS decoding...\n");
     fflush(stdout);
   }
+
   // We first set the matrix which we will need to take the inverse of
-  int *matrix,*inverse_matrix;
+  int *matrix,*inverse_matrix, *bitmatrix;
   if(topo->groupRank==0){
     matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
     int j;
@@ -769,7 +651,7 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     }
     for(j=topo->groupSize;j<2*topo->groupSize;j++){
       Y[j%topo->groupSize]=j;
-    } */
+    }  */
     X[0]=1;
     X[1]=2;
     X[2]=244;
@@ -777,26 +659,13 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     Y[0]=0;
     Y[1]=3;
     Y[2]=245;
-    Y[3]=246; 
-    int i;
-    for(i=0;i<topo->groupSize;i++){
-      if(survivors[i]<topo->groupSize){
-        // The first rows, corresponding to the raw ckpt files, are easy
-        for(j=0;j<topo->groupSize;j++){
-          matrix[i*topo->groupSize+j]=0;
-        }
-        matrix[i*topo->groupSize+survivors[i]]=1;
-      }else{
-        // The rows corresponding to the encoded files are trickier, but are really the same as for the encoding process for the
-        // appropiate encoded files.
-        for(j=0;j<topo->groupSize;j++){
-          matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[survivors[i]%topo->groupSize]^Y[j]),w);
-        }
+    Y[3]=246;
+    for(int i=0;i<topo->groupSize;i++){
+      for(j=0;j<topo->groupSize;j++){
+        matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[i]^Y[j]),w);
       }
     }
-    // Now we should take the inverse of the matrix
-    inverse_matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
-    jerasure_invert_matrix(matrix,inverse_matrix,topo->groupSize,w);
+    bitmatrix = jerasure_matrix_to_bitmatrix(topo->groupSize,topo->groupSize,w,matrix);
   }
 
   // At this point we have to proceed similarly to as we did in the encoding procedure, with the exception that to do the 
@@ -829,46 +698,47 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     MPI_Bcast(&ckptFileSize,sizeof(off_t),MPI_CHAR,survivors[0]-topo->groupSize,topo->groupComm);
   }
 
-  int blockSize = 256*1024; 
-  
-  char *restoredBlocks; // Group rank 0 is going to temporarily store the piece of recovered ckpt images before sending them to
-                        // their respective processes
-  char *dataBlock; 
-  char *restoredBlock; // The to_recover processes will keep getting pieces of their recovered ckpt files
+  char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
+  char **dataBlocks;
+  char **encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
+                         // respective processes
+  char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
 
+  if(topo->groupRank==0){
+    dataBlock = (char*)malloc(size);
+    dataBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+    encodedBlock = (char*)malloc(size);
+    encodedBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+    for(int i = 0;i<topo->groupSize;i++){
+      dataBlocks[i] = (char*)malloc(size);
+      encodedBlocks[i] = (char*)malloc(size);
+    }
+  }else{
+    dataBlock = (char*)malloc(size);
+    encodedBlock = (char*)malloc(size);
+  }
+  
   int num_to_recover = topo->groupSize-total_succes_raw;
 
   string encodedFilename = filename + "_encoded";
   string encodedChksum = filename + "_encoded_md5chksum";
   int fd_m,fd_e;
 
-  if(topo->groupRank==0){
-    restoredBlocks = (char*)malloc(blockSize*num_to_recover);
-    dataBlock = (char*)malloc(blockSize);
-  }
-  int i;
-  for(i=0;i<num_to_recover;i++){
-    if(topo->groupRank==to_recover[i]){
-      restoredBlock =  (char*)malloc(blockSize);
-    }
-  }
-  for(i=0;i<topo->groupSize;i++){
+  for(int i=0;i<topo->groupSize;i++){
     if(survivors[i]<topo->groupSize){
       if(topo->groupRank==survivors[i]){
-        dataBlock = (char*)malloc(blockSize);
         fd_m = open(filename.c_str(), O_RDONLY);
         JASSERT(fd_m != -1);
       }
     }else if (survivors[i]>=topo->groupSize){
       if(topo->groupRank==survivors[i]%topo->groupSize){
-        dataBlock = (char*)malloc(blockSize);
         fd_e = open(encodedFilename.c_str(), O_RDONLY);
         JASSERT(fd_e != -1);
       }
     }
   }
 
-  for(i=0;i<num_to_recover;i++){
+  for(int i=0;i<num_to_recover;i++){
     if(topo->groupRank==to_recover[i]){
       fd_m = open(filename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
       if(truncate(filename.c_str(),0) == -1){
@@ -881,109 +751,78 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
 
   int pos = 0;
   while(pos<ckptFileSize){
-    if(ckptFileSize-pos<blockSize){
-      blockSize=ckptFileSize-pos;
-    }
     if(topo->groupRank==0){
       // We have to iteratively acquire the data from survivors[i]
-      for(i=0;i<topo->groupSize;i++){
+      for(int i=0;i<topo->groupSize;i++){
         if(survivors[i]<topo->groupSize){
           if(survivors[i]==0){
-            Util::readAll(fd_m,dataBlock,blockSize);
+            Util::readAll(fd_m,dataBlocks[0],size);
           } else{
-            MPI_Recv(dataBlock,blockSize,MPI_CHAR,survivors[i],0,topo->groupComm,MPI_STATUS_IGNORE);
-          }
-          int j;
-          for(j=0;j<num_to_recover;j++){
-            int matrix_element = inverse_matrix[to_recover[j]*topo->groupSize+i];
-            int k;
-            if(i==0){
-              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),0);
-            }else{
-              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),1);
-            }
+            MPI_Recv(dataBlocks[survivors[i]],size,MPI_CHAR,survivors[i],0,topo->groupComm,MPI_STATUS_IGNORE);
           }
         }else if(survivors[i]>=topo->groupSize){
           if(survivors[i]%topo->groupSize==0){
-            Util::readAll(fd_e,dataBlock,blockSize);
+            Util::readAll(fd_e,encodedBlocks[0],size);
           } else{
-            MPI_Recv(dataBlock,blockSize,MPI_CHAR,survivors[i]%topo->groupSize,0,topo->groupComm,MPI_STATUS_IGNORE);
-          }
-          int j;
-          for(j=0;j<num_to_recover;j++){
-            int matrix_element = inverse_matrix[to_recover[j]*topo->groupSize+i];
-            int k;
-            if(i==0){
-              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),0);
-            }else{
-              galois_w08_region_multiply(dataBlock,matrix_element,blockSize,&(restoredBlocks[j*blockSize]),1);
-            }
+            MPI_Recv(encodedBlocks[survivors[i]%topo->groupSize],size,MPI_CHAR,survivors[i]%topo->groupSize,0,topo->groupComm,MPI_STATUS_IGNORE);
           }
         }
       }
     } else{
-      for(i=0;i<topo->groupSize;i++)
+      for(int i=0;i<topo->groupSize;i++)
       {
         if(survivors[i]<topo->groupSize && survivors[i]!=0 && topo->groupRank==survivors[i]){
-          Util::readAll(fd_m,dataBlock,blockSize);
-          MPI_Send(dataBlock,blockSize,MPI_CHAR,0,0,topo->groupComm);
+          Util::readAll(fd_m,dataBlock,size);
+          MPI_Send(dataBlock,size,MPI_CHAR,0,0,topo->groupComm);
         } else if(survivors[i]>= topo->groupSize && survivors[i]%topo->groupSize!=0 && topo->groupRank==survivors[i]%topo->groupSize){
-          Util::readAll(fd_e,dataBlock,blockSize);
-          MPI_Send(dataBlock,blockSize,MPI_CHAR,0,0,topo->groupComm);
+          Util::readAll(fd_e,dataBlock,size);
+          MPI_Send(dataBlock,size,MPI_CHAR,0,0,topo->groupComm);
         }
       }
     }
 
+    // Now we decode
+    if(topo->groupRank==0){
+      jerasure_bitmatrix_decode(topo->groupSize,topo->groupSize,w,bitmatrix,0,erasures,dataBlocks,encodedBlocks,size,packetSize);
+    }
+
     // Now we have to send back the pieces of recovered ckpt files to their respective processes, with the caution that 
     // process group Rank 0 can be one of the processes in to_recover and there is no need to send in that.
-    for(i=0;i<num_to_recover;i++){
+    for(int i=0;i<num_to_recover;i++){
       if(to_recover[i]==0){
         if(topo->groupRank==0){
-          Util::writeAll(fd_m,&(restoredBlocks[i*blockSize]),blockSize);
+          Util::writeAll(fd_m,dataBlocks[0],size);
         }
       }else{
         if(topo->groupRank==0){
-          MPI_Send(&(restoredBlocks[i*blockSize]),blockSize,MPI_CHAR,to_recover[i],0,topo->groupComm);
+          MPI_Send(dataBlocks[to_recover[i]],size,MPI_CHAR,to_recover[i],0,topo->groupComm);
         }else{
           if(topo->groupRank==to_recover[i]){
-            MPI_Recv(restoredBlock,blockSize,MPI_CHAR,0,0,topo->groupComm,MPI_STATUS_IGNORE);
-            Util::writeAll(fd_m,restoredBlock,blockSize);
+            MPI_Recv(dataBlock,size,MPI_CHAR,0,0,topo->groupComm,MPI_STATUS_IGNORE);
+            Util::writeAll(fd_m,dataBlock,size);
           }
         }
       }
     }
     MPI_Barrier(topo->groupComm);
-    pos +=blockSize;
+    pos +=size;
   }
   
   if(topo->groupRank==0){
-    free(inverse_matrix);
-    free(restoredBlocks);
+    free(matrix);
+    free(bitmatrix);
     free(dataBlock);
-  }
-  for(i=0;i<num_to_recover;i++){
-    if(topo->groupRank==to_recover[i]){
-      free(restoredBlock);
+    for(int i = 0;i<topo->groupSize;i++){
+      free(dataBlocks[i]);
+      free(encodedBlocks[i]);
     }
+    free(dataBlocks);
+    free(encodedBlocks);
+  }else{
+    free(encodedBlock);
   }
 
-  bool already_freed = false;
-  for(i=0;i<topo->groupSize;i++){
-    if(survivors[i]<topo->groupSize){
-      if(topo->groupRank==survivors[i] && topo->groupRank!=0){
-        free(dataBlock);
-        already_freed = true;
-      }
-    }else if (survivors[i]>=topo->groupSize){
-      if(topo->groupRank==survivors[i]%topo->groupSize && topo->groupRank!=0){
-        if(!already_freed){
-          free(dataBlock);
-        }
-      }
-    }
-  }
-
-  for(i=0;i<topo->groupSize;i++){
+  for(int i=0;i<topo->groupSize;i++){
     if(survivors[i]<topo->groupSize){
       if(topo->groupRank==survivors[i]){
         close(fd_m);
@@ -995,30 +834,12 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     }
   }
 
-  for(i=0;i<num_to_recover;i++){
+  for(int i=0;i<num_to_recover;i++){
     if(topo->groupRank==to_recover[i]){
       close(fd_m);
     }
   }
-  
-  // Before finishing, we have to restore the ckpt files to their original sizes, which are stored at the end of the still
-  // enlarged files
-  fd_m = open(filename.c_str(), O_RDONLY);
-  JASSERT(fd_m != -1);
-  if(lseek(fd_m, -sizeof(off_t), SEEK_END) == -1){
-    JASSERT(0).Text("Unable to seek in file.\n");
-  }
 
-  off_t original_size;
-  if(read(fd_m,&original_size,sizeof(off_t)) == -1){
-    JASSERT(0).Text("Unable to read ckpt file size from elongated file.\n");
-  }
-  printf("Rank %d read ckptFileSize %lu\n",topo->groupRank,original_size);
-  fflush(stdout);
-  close(fd_m);
-  if(truncate(filename.c_str(),original_size) == -1){
-    JASSERT(0).Text("Error with truncation ckpt image to its original size.\n");
-  }
   if(topo->groupRank==0){
     uint64_t post_time = (getRealCurrTime() - post_start)/1000;
     double post_time_sec = ((double)post_time)/1000;
@@ -1030,6 +851,33 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
   MPI_Barrier(topo->groupComm);
 }
 
+void UtilsMPI::convertMatrixToBitmatrix(int *matrix, int *bitmatrix, int n, int w){
+  // We assume the matrices have been allocated with the correct sizes
+  int i,j,k,l;
+  int matrix_val;
+  int power;
+  for(i=0;i<n;i++){ // Iterates vertically through the n x n original matrix (still not bit)
+    for(j=0;j<n;j++){ // Iterates horizontally through the n x n original matrix (still not bit)
+      matrix_val = matrix[i*n+j];
+      for(l=0;l<w;l++){ // At each column of the submatrix (bit) for the matrix[i][j] element, we have the bit representation of matrix_val*2^(l)
+        // We obtain the bit representation of matrix_val*2^(l)
+        power = 1;
+        for(k=0;k<w;k++){
+          bitmatrix[i*w*w*n+j*w+k*w*n+l] = ((matrix_val & power) == 0) ? 0 : 1;
+          power *= 2;
+        }
+        matrix_val = galois_single_multiply(matrix_val,2,w);
+      }
+    }
+  }
+  /* for(int q=0;q<n*w;q++){
+    for(int r=0;r<n*w;r++){
+      printf("%d ", bitmatrix[q*n*w+r]);
+    }
+    printf("\n");
+  }
+  fflush(stdout); */
+}
   
 char*
 findCkptFilename(string ckpt_dir, string patternEnd){
@@ -1481,6 +1329,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
         // recover.
 
         int to_recover[topo->groupSize-total_success_raw];
+        int erasures[2*topo->groupSize];
         int survivors[topo->groupSize]; // We just need topo->groupSize correct files to recover all the ckpt images. We select
                                         // all the unencoded correct ones and, if necesssary, encoded ones.
         int pos_recover = 0, pos_survivor = 0;
@@ -1493,6 +1342,21 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
             pos_survivor++;
           }
         }
+        pos_recover = 0;
+        for(i=0;i<topo->groupSize;i++){
+          if(success_array[i]==0){
+            erasures[pos_recover] = i;
+            pos_recover++;
+          }
+        }
+        for(i=0;i<topo->groupSize;i++){
+          if(encoded_success_array[i]==0){
+            erasures[pos_recover] = i+topo->groupSize;
+            pos_recover++;
+          }
+        }
+        erasures[pos_recover] = -1;
+
         // We add the necessary encoded ckpt files. We will denote them by topo->groupSize + i, where i is the process to which they belong.
         for(i=0;i<topo->groupSize;i++){
           if(pos_survivor==topo->groupSize){
@@ -1506,8 +1370,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
 
         // At this point we have already selected the survivor files from which we are going to recover. We would now need to apply
         // RS decoding, via multiplication with the inverse of the adequate matrix. 
-
-        performRSDecoding(filename,topo,to_recover,total_success_raw, survivors);
+        performRSDecoding(filename,topo,to_recover,erasures,total_success_raw,survivors);
         return 1;
       }
       catch (std::exception &e){ //survive unexpected exceptions and assume failure

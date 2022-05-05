@@ -40,14 +40,12 @@ public:
   void getSystemTopology(ConfigInfo *cfg, Topology **topo);
   void performPartnerCopy(string ckptFilename, Topology *topo);
   void performRSEncoding(string ckptFilename, Topology *topo);
-  void performRSDecoding(string filename, Topology* topo, int *to_recover, int total_success_raw, int *survivors);
+  void performRSDecoding(string filename, Topology* topo, int *to_recover, int *erasures, int total_success_raw, int *survivors);
   int jerasure_invert_matrix(int *mat, int *inv, int rows, int w);
   unsigned int countSetBits(unsigned char n);
   void setMatrixOnes(int* matrix, int w);
   void findGoodCauchyMatrix(int n, int w);
   void convertMatrixToBitmatrix(int *matrix, int *bitmatrix, int n, int w);
-  void charArrayToBits(char *array, unsigned char *bitArray, int n, int w);
-  void bitArrayToChar(unsigned char *bitArray, char* array, int n, int w);
   int checkCkptValid(int ckpt_type, string dir, Topology *topo);
   int isCkptValid(const char *filename);
   int isEncodedCkptValid(const char *filename);
