@@ -424,7 +424,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
   off_t final_size = maxSize+sizeof(off_t);
 
-  int packetSize = 1024*sizeof(long);
+  int packetSize = 16*1024*sizeof(long);
   int size = w*packetSize;
 
   if(final_size % (w*packetSize)!=0){
@@ -457,6 +457,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
   
   int *matrix, *bitmatrix;
+  int **schedule;
   if(topo->groupRank==0){
     matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
     int j;
@@ -482,6 +483,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     }
     //jerasure_print_matrix(matrix,4,4,8);
     bitmatrix = jerasure_matrix_to_bitmatrix(topo->groupSize,topo->groupSize,w,matrix);
+    schedule = jerasure_smart_bitmatrix_to_schedule(topo->groupSize,topo->groupSize,w,bitmatrix);
   }
   
   fd_m = open(ckptFilename.c_str(), O_RDONLY);
@@ -548,7 +550,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
     // Now we do the encoding
     if(topo->groupRank==0){
-      jerasure_bitmatrix_encode(topo->groupSize,topo->groupSize,w,bitmatrix,dataBlocks,encodedBlocks,size,packetSize);
+      jerasure_schedule_encode(topo->groupSize,topo->groupSize,w,schedule,dataBlocks,encodedBlocks,size,packetSize);
     }
 
     // Now we have to retrieve and store in file the encoded ckpt images
@@ -570,6 +572,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   if(topo->groupRank==0){
     free(matrix);
     free(bitmatrix);
+    free(schedule);
     free(dataBlock);
     for(int i = 0;i<topo->groupSize;i++){
       free(dataBlocks[i]);
@@ -630,7 +633,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
 void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover, int *erasures, int total_succes_raw, int *survivors){
   int w = 8;
-  int packetSize = 1024*sizeof(long);
+  int packetSize = 16*1024*sizeof(long);
   int size = w*packetSize;
 
   uint64_t post_start;
@@ -783,7 +786,7 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
 
     // Now we decode
     if(topo->groupRank==0){
-      jerasure_bitmatrix_decode(topo->groupSize,topo->groupSize,w,bitmatrix,0,erasures,dataBlocks,encodedBlocks,size,packetSize);
+      jerasure_schedule_decode_lazy(topo->groupSize,topo->groupSize,w,bitmatrix,erasures,dataBlocks,encodedBlocks,size,packetSize,1);
     }
 
     // Now we have to send back the pieces of recovered ckpt files to their respective processes, with the caution that 
