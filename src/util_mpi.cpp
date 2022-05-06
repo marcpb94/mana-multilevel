@@ -381,11 +381,12 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
   string encodedFilename = ckptFilename + "_encoded";
   string encodedChksum = ckptFilename + "_encoded_md5chksum";
+  string ckptChksum = ckptFilename + "_md5chksum";
 
   int fd_m = open(ckptFilename.c_str(), O_RDONLY);
   JASSERT(fd_m != -1);
 
-  int fd_e = open(encodedFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  int fd_e = open(encodedFilename.c_str(), O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
   JASSERT(fd_e != -1);
 
   struct stat sb;
@@ -550,7 +551,6 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     pos +=size;
     MPI_Barrier(topo->groupComm);
   }
-  close(fd_e);
 
   if(topo->groupRank==0){
     free(matrix);
@@ -568,23 +568,21 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   }
 
   //read checkpoint file as pure data just to compute checksum
-  #pragma region chksum
   MD5_CTX context;
   unsigned char digest[16];
-  Area area;
-  size_t END_OF_CKPT = -1;
   ssize_t bytes_read;
   int chunkSize = MEM_TMP_SIZE;
-  char *addr_tmp = (char *)malloc(MEM_TMP_SIZE);
+  char *addr_tmp = (char *)malloc(chunkSize);
   MD5_Init(&context);
 
-
-  fd_e = open(encodedFilename.c_str(), O_RDONLY);
-  JASSERT(fd_e != -1);
+  lseek(fd_m, 0, SEEK_SET);
+  lseek(fd_e, 0, SEEK_SET);
 
   int fd_e_chksum = open(encodedChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   JASSERT(fd_e_chksum != -1);
 
+  int fd_m_chksum = open(ckptChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  JASSERT(fd_m_chksum != -1);
 
   pos = 0;
   while(pos<final_size){
@@ -593,13 +591,42 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     }
     if((bytes_read = Util::readAll(fd_e, addr_tmp, chunkSize)) != (ssize_t)chunkSize){
         if(bytes_read == -1) {
-          printf("Error reading memory region: %s\n", strerror(errno));
+          printf("Error reading encoded checkpoint file: %s\n", strerror(errno));
           fflush(stdout);
         }
         else {
-          printf("Expected memory region of %lu bytes, got only %ld.\n", chunkSize, bytes_read);
+          printf("Expected %d bytes, got %ld instead.\n", chunkSize, bytes_read);
           fflush(stdout);
         }
+        close(fd_m); close(fd_m_chksum);
+        close(fd_e); close (fd_e_chksum);
+        free(addr_tmp);
+        return;
+    }
+    MD5_Update(&context,addr_tmp,chunkSize);
+    pos += chunkSize;
+  }
+  MD5_Final(digest, &context); 
+  Util::writeAll(fd_e_chksum, digest, 16);
+  
+
+  MD5_Init(&context);
+  chunkSize = MEM_TMP_SIZE;
+  pos = 0;
+  while(pos<final_size){
+    if(final_size-pos<chunkSize){
+      chunkSize=final_size-pos;
+    }
+    if((bytes_read = Util::readAll(fd_m, addr_tmp, chunkSize)) != (ssize_t)chunkSize){
+        if(bytes_read == -1) {
+          printf("Error reading checkpoint file: %s\n", strerror(errno));
+          fflush(stdout);
+        }
+        else {
+          printf("Expected %d bytes, got %ld instead.\n", chunkSize, bytes_read);
+          fflush(stdout);
+        }
+        close(fd_m); close(fd_m_chksum);
         close(fd_e); close (fd_e_chksum);
         free(addr_tmp);
         return;
@@ -608,10 +635,13 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     pos += chunkSize;
   }
   MD5_Final(digest, &context);
-  Util::writeAll(fd_e_chksum, digest, 16);
-  
+  Util::writeAll(fd_m_chksum, digest, 16);
+
+  free(addr_tmp);
+  close(fd_m);
   close(fd_e);
   close(fd_e_chksum);
+  close(fd_m_chksum);
 }
 
 void UtilsMPI::performRSDecoding(string filename, string filenameEncoded, Topology* topo, int *to_recover, int *erasures, int total_succes_raw, int *survivors){
@@ -1122,7 +1152,7 @@ UtilsMPI::isEncodedCkptValid(const char *filename){
   size_t END_OF_CKPT = -1;
   ssize_t bytes_read;
   int chunkSize = MEM_TMP_SIZE;
-  char *addr_tmp = (char *)malloc(MEM_TMP_SIZE);
+  char *addr_tmp = (char *)malloc(chunkSize);
   MD5_Init(&context);
 
 
@@ -1295,7 +1325,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
         }
       }
       if(fileName != NULL){
-        if(isCkptValid(filename.c_str())){
+        if(isEncodedCkptValid(filename.c_str())){
           success=1;
         }
       }
