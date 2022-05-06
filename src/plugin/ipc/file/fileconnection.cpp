@@ -132,7 +132,8 @@ FileConnection::drain()
 
   JASSERT(_fds.size() > 0);
 
-  return;
+  printf("FileConnection::drain -> fd: %d, path: %s\n",_fds[0], _path.c_str());
+  fflush(stdout);
 
   _ckpted_file = false;
   _allow_overwrite = false;
@@ -217,7 +218,7 @@ FileConnection::drain()
 void
 FileConnection::preCkpt()
 {
-  if (false) {
+  if (_ckpted_file) {
     ConnectionIdentifier id;
     JASSERT(_type != FILE_PROCFS && _type != FILE_INVALID);
     JASSERT(SharedData::getCkptLeaderForFile(_st_dev, _st_ino, &id));
@@ -463,7 +464,7 @@ FileConnection::postRestart()
     refreshPath();
   }
 
-  if (true) {
+  if (!_ckpted_file) {
     return;
   }
   _fileAlreadyExists = false;

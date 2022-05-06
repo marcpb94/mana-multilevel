@@ -383,7 +383,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   string encodedChksum = ckptFilename + "_encoded_md5chksum";
   string ckptChksum = ckptFilename + "_md5chksum";
 
-  int fd_m = open(ckptFilename.c_str(), O_RDONLY);
+  int fd_m = open(ckptFilename.c_str(), O_RDWR);
   JASSERT(fd_m != -1);
 
   int fd_e = open(encodedFilename.c_str(), O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
@@ -432,16 +432,13 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     final_size = (final_size / size)*size + size;
   }
 
-  JASSERT(close(fd_m) == 0);
-  if(truncate(ckptFilename.c_str(),final_size) == -1){
+  if(ftruncate(fd_m, final_size) == -1){
     JASSERT(0).Text("Error with truncation on ckpt image.\n");
   }
   
   // Now we will write the original size of the ckpt to the end of the elongated file, so that at restart we can recover 
   // the original ckpt image
 
-  fd_m = open(ckptFilename.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-  JASSERT(fd_m != -1);
   if(lseek(fd_m, -sizeof(off_t), SEEK_END) == -1){
     JASSERT(0).Text("Unable to seek in file.\n");
   }
@@ -488,9 +485,8 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     schedule = jerasure_smart_bitmatrix_to_schedule(topo->groupSize,topo->groupSize,w,bitmatrix);
   }
   
-  fd_m = open(ckptFilename.c_str(), O_RDONLY);
-  JASSERT(fd_m != -1);
-  
+  lseek(fd_m, 0, SEEK_SET); 
+ 
   char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
   char **dataBlocks;
   char **encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
@@ -1391,6 +1387,17 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
           survivors[pos_survivor]=topo->groupSize+i;
           pos_survivor++;
         }
+      }
+
+      if (topo->groupRank == 0) {
+      for(i = 0; i < pos_recover; i++){
+        printf("%d", to_recover[i]);
+      }
+      printf("\n");
+      for(i = 0; i < pos_survivor; i++){
+        printf("%d", survivors[i]);
+      }
+      printf("\n");
       }
 
       // At this point we have already selected the survivor files from which we are going to recover. We would now need to apply
