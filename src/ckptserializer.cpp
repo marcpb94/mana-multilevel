@@ -449,8 +449,13 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
   fd = perform_open_ckpt_image_fd(tempCkptFilename.c_str(), &use_compression,
                                   &fdCkptFileOnDisk);
 
-  fd_chksum = _real_open(checksumFilenameTmp.c_str(),  O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
-  JASSERT(fd_chksum >= 0);
+  //Reed-Solomon checkpoint needs a checksum of the entire elongated file
+  //leave checksum generation to the encoding function
+  if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+    fd_chksum = _real_open(checksumFilenameTmp.c_str(),  O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+    JASSERT(fd_chksum >= 0);
+  }
+
   JASSERT(fdCkptFileOnDisk >= 0);
   JASSERT(use_compression || fd == fdCkptFileOnDisk);
 
@@ -481,7 +486,9 @@ CkptSerializer::writeCkptImage(void *mtcpHdr, size_t mtcpHdrLen)
    * So, gzip process can continue to write to file even after renaming.
    */
   JASSERT(rename(tempCkptFilename.c_str(), ckptFilename.c_str()) == 0);
-  JASSERT(rename(checksumFilenameTmp.c_str(), checksumFilename.c_str()) == 0);
+  if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+    JASSERT(rename(checksumFilenameTmp.c_str(), checksumFilename.c_str()) == 0);
+  }
 
   if (forked_ckpt_status == FORKED_CKPT_CHILD) {
     // Use _exit() instead of exit() to avoid popping atexit() handlers

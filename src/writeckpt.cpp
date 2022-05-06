@@ -161,9 +161,11 @@ mtcp_writememoryareas(int fd, int fd_chksum)
 
   JTRACE("Performing checkpoint.");
 
-  //re-initialize MD5 context
-  MD5_Init(&context);
-  num_updates = 0;
+  if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+     //re-initialize MD5 context
+     MD5_Init(&context);
+     num_updates = 0;
+  }
 
   // Here we want to sync the shared memory pages with the backup files
   // FIXME: Why do we need this?
@@ -325,7 +327,9 @@ mtcp_writememoryareas(int fd, int fd_chksum)
       area.properties |= DMTCP_ZERO_PAGE;
       area.flags = MAP_PRIVATE | MAP_ANONYMOUS;
       Util::writeAll(fd, &area, sizeof(area));
-      MD5_Update(&context, &area, sizeof(area));
+      if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+        MD5_Update(&context, &area, sizeof(area));
+      }
       continue;
     } else if (Util::isIBShmArea(area)) {
       // TODO: Don't checkpoint infiniband shared area for now.
@@ -380,16 +384,15 @@ mtcp_writememoryareas(int fd, int fd_chksum)
   area.addr = NULL; // End of data
   area.size = -1; // End of data
   Util::writeAll(fd, &area, sizeof(area));
-
-  MD5_Final(digest, &context);
-
-  //printf("Number of updates: %d\n", num_updates);
-
-  Util::writeAll(fd_chksum, digest, 16);
-
+ 
+  if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+    MD5_Final(digest, &context);
+    Util::writeAll(fd_chksum, digest, 16);
+    JASSERT(_real_close(fd_chksum) == 0);
+  }
+ 
   /* That's all folks */
   JASSERT(_real_close(fd) == 0);
-  JASSERT(_real_close(fd_chksum) == 0);
 }
 
 static void
@@ -490,8 +493,10 @@ mtcp_write_non_rwx_and_anonymous_pages(int fd, Area *orig_area)
     
     Util::writeAll(fd, &a, sizeof(a));
 
-    //update context with area info
-    MD5_Update(&context, &a, sizeof(a));
+    if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+      //update context with area info
+      MD5_Update(&context, &a, sizeof(a));
+    }
 
     if (!is_zero) {
       uint64_t toCopy = a.size;
@@ -503,7 +508,9 @@ mtcp_write_non_rwx_and_anonymous_pages(int fd, Area *orig_area)
         //to avoid modification while executing 
         memcpy(mem_tmp, a.addr + (a.size-toCopy), chunkSize);
         Util::writeAll(fd, mem_tmp, chunkSize);
-        MD5_Update(&context, mem_tmp, chunkSize);
+        if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+          MD5_Update(&context, mem_tmp, chunkSize);
+        }
         toCopy -= chunkSize;
       }
     } else {
@@ -576,16 +583,20 @@ writememoryarea(int fd, Area *area, int stack_was_seen)
       area->properties |= DMTCP_SKIP_WRITING_TEXT_SEGMENTS;
       Util::writeAll(fd, area, sizeof(*area));
 
-      //update context with area info
-      MD5_Update(&context, area, sizeof(*area));
+      if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+        //update context with area info
+        MD5_Update(&context, area, sizeof(*area));
+      }
 
       JTRACE("Skipping over text segments") (area->name) ((void *)area->addr);
     } else {
     
       Util::writeAll(fd, area, sizeof(*area));
       
-      //update context with area info
-      MD5_Update(&context, area, sizeof(*area));
+      if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+        //update context with area info
+        MD5_Update(&context, area, sizeof(*area));
+      }
 
       uint64_t toCopy = area->size;
       while (toCopy > 0){
@@ -596,7 +607,9 @@ writememoryarea(int fd, Area *area, int stack_was_seen)
         //to avoid modification while executing 
         memcpy(mem_tmp, area->addr + (area->size-toCopy), chunkSize);
         Util::writeAll(fd, mem_tmp, chunkSize);
-        MD5_Update(&context, mem_tmp, chunkSize);
+        if (ProcessInfo::instance().getCkptType() != CKPT_SOLOMON) {
+          MD5_Update(&context, mem_tmp, chunkSize);
+        }
         toCopy -= chunkSize;
       }
     }
