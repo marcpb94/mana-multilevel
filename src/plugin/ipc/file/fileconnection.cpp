@@ -132,6 +132,8 @@ FileConnection::drain()
 
   JASSERT(_fds.size() > 0);
 
+  return;
+
   _ckpted_file = false;
   _allow_overwrite = false;
 
@@ -215,7 +217,7 @@ FileConnection::drain()
 void
 FileConnection::preCkpt()
 {
-  if (_ckpted_file) {
+  if (false) {
     ConnectionIdentifier id;
     JASSERT(_type != FILE_PROCFS && _type != FILE_INVALID);
     JASSERT(SharedData::getCkptLeaderForFile(_st_dev, _st_ino, &id));
@@ -461,7 +463,7 @@ FileConnection::postRestart()
     refreshPath();
   }
 
-  if (!_ckpted_file) {
+  if (true) {
     return;
   }
   _fileAlreadyExists = false;

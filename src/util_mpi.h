@@ -40,7 +40,7 @@ public:
   void getSystemTopology(ConfigInfo *cfg, Topology **topo);
   void performPartnerCopy(string ckptFilename, Topology *topo);
   void performRSEncoding(string ckptFilename, Topology *topo);
-  void performRSDecoding(string filename, Topology* topo, int *to_recover, int *erasures, int total_success_raw, int *survivors);
+  void performRSDecoding(string filename, string filenameEncoded, Topology* topo, int *to_recover, int *erasures, int total_success_raw, int *survivors);
   int jerasure_invert_matrix(int *mat, int *inv, int rows, int w);
   unsigned int countSetBits(unsigned char n);
   void setMatrixOnes(int* matrix, int w);
