@@ -513,58 +513,59 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     uencodedBlock = (unsigned char*)malloc(size);
   } */
 
-  if(topo->groupRank==0){
-    dataBlock = (char*)malloc(size);
-    dataBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
-    encodedBlock = (char*)malloc(size);
-    encodedBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
-    for(int i = 0;i<topo->groupSize;i++){
-      dataBlocks[i] = (char*)malloc(size);
-      encodedBlocks[i] = (char*)malloc(size);
-    }
-  }else{
-    dataBlock = (char*)malloc(size);
-    encodedBlock = (char*)malloc(size);
+  dataBlock = (char*)malloc(size);
+  dataBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+  encodedBlock = (char*)malloc(size);
+  encodedBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+  for(int i = 0;i<topo->groupSize;i++){
+    dataBlocks[i] = (char*)malloc(size);
+    encodedBlocks[i] = (char*)malloc(size);
   }
 
+  int toProcess[topo->groupSize];
+  int k;
   int pos = 0;
   while(pos<final_size){
 
-    // We are going to generate topo->groupSize encoded ckpt images
-    
-    // We first retrieve the part of the ckpt image we already have at groupRank 0
-    if(topo->groupRank==0){
-      Util::readAll(fd_m,dataBlocks[0],size);
-    }
-
-    // Now let us obtain the part of the ckpt images from the other processes
-    if(topo->groupRank==0){
-      int k;
-      for(k=1;k<topo->groupSize;k++){
-        MPI_Recv(dataBlocks[k],size,MPI_CHAR,k,0,topo->groupComm,MPI_STATUS_IGNORE);
+    //distribute blocks across all ranks from group    
+    for(i = 0; i < topo->groupSize; i++){
+      toProcess[i] = (pos+size <= final_size) ? 
+                            size : final_size-pos;
+      pos += toProcess[i];
+      if (toProcess[i] == 0) continue;
+      if (topo->groupRank == i){
+        Util::readAll(fd_m,dataBlocks[i],size);
+        for(k=0;k<topo->groupSize;k++){
+          if(k == i) continue;
+          MPI_Recv(dataBlocks[k],size,MPI_CHAR,k,0,topo->groupComm,MPI_STATUS_IGNORE);
+        }
       }
-    }else{
-      Util::readAll(fd_m,dataBlock,size);
-      MPI_Send(dataBlock,size,MPI_CHAR,0,0,topo->groupComm);
+      else {
+        Util::readAll(fd_m,dataBlock,size);
+        MPI_Send(dataBlock,size,MPI_CHAR,i,0,topo->groupComm);
+      }
     }
 
-    // Now we do the encoding
-    if(topo->groupRank==0){
+    // Now we do the encoding, if we have data
+    if (toProcess[i] > 0) {
       jerasure_schedule_encode(topo->groupSize,topo->groupSize,w,schedule,dataBlocks,encodedBlocks,size,packetSize);
     }
 
-    // Now we have to retrieve and store in file the encoded ckpt images
-    if(topo->groupRank==0){
-      Util::writeAll(fd_e,encodedBlocks[0],size);
-      for(int i=1;i<topo->groupSize;i++){
-        MPI_Send(encodedBlocks[i],size,MPI_CHAR,i,0,topo->groupComm);
+    for (i = 0; i < topo->groupSize; i++){
+      if (toProcess[i] == 0) break;
+      if (topo->groupRank == i) {
+        Util::writeAll(fd_e,encodedBlocks[i],size);
+        for(k=0;k<topo->groupSize;k++){
+          if (k == i)  continue;
+          MPI_Send(encodedBlocks[k],size,MPI_CHAR,k,0,topo->groupComm);
+        }
       }
-    }else{
-      MPI_Recv(encodedBlock,size,MPI_CHAR,0,0,topo->groupComm,MPI_STATUS_IGNORE);
-      Util::writeAll(fd_e,encodedBlock,size);
+      else {
+        MPI_Recv(encodedBlock,size,MPI_CHAR,i,0,topo->groupComm,MPI_STATUS_IGNORE);
+        Util::writeAll(fd_e,encodedBlock,size);
+      }
     }
-  
-    pos +=size;
+
     MPI_Barrier(topo->groupComm);
   }
   close(fd_e);
