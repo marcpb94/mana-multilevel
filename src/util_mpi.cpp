@@ -458,33 +458,31 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   
   int *matrix, *bitmatrix;
   int **schedule;
-  if(topo->groupRank==0){
-    matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
-    int j;
-    int X[topo->groupSize], Y[topo->groupSize];
-    /* for(j=0;j<topo->groupSize;j++){
-      X[j]=j;
-    }
-    for(j=topo->groupSize;j<2*topo->groupSize;j++){
-      Y[j%topo->groupSize]=j;
-    }  */
-    X[0]=1;
-    X[1]=2;
-    X[2]=244;
-    X[3]=247;
-    Y[0]=0;
-    Y[1]=3;
-    Y[2]=245;
-    Y[3]=246;
-    for(i=0;i<topo->groupSize;i++){
-      for(j=0;j<topo->groupSize;j++){
-        matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[i]^Y[j]),w);
-      }
-    }
-    //jerasure_print_matrix(matrix,4,4,8);
-    bitmatrix = jerasure_matrix_to_bitmatrix(topo->groupSize,topo->groupSize,w,matrix);
-    schedule = jerasure_smart_bitmatrix_to_schedule(topo->groupSize,topo->groupSize,w,bitmatrix);
+  matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
+  int j;
+  int X[topo->groupSize], Y[topo->groupSize];
+  /* for(j=0;j<topo->groupSize;j++){
+    X[j]=j;
   }
+  for(j=topo->groupSize;j<2*topo->groupSize;j++){
+    Y[j%topo->groupSize]=j;
+  }  */
+  X[0]=1;
+  X[1]=2;
+  X[2]=244;
+  X[3]=247;
+  Y[0]=0;
+  Y[1]=3;
+  Y[2]=245;
+  Y[3]=246;
+  for(i=0;i<topo->groupSize;i++){
+    for(j=0;j<topo->groupSize;j++){
+      matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[i]^Y[j]),w);
+    }
+  }
+  //jerasure_print_matrix(matrix,4,4,8);
+  bitmatrix = jerasure_matrix_to_bitmatrix(topo->groupSize,topo->groupSize,w,matrix);
+  schedule = jerasure_smart_bitmatrix_to_schedule(topo->groupSize,topo->groupSize,w,bitmatrix);
   
   fd_m = open(ckptFilename.c_str(), O_RDONLY);
   JASSERT(fd_m != -1);
@@ -547,7 +545,7 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     }
 
     // Now we do the encoding, if we have data
-    if (toProcess[i] > 0) {
+    if (toProcess[topo->groupRank] > 0) {
       jerasure_schedule_encode(topo->groupSize,topo->groupSize,w,schedule,dataBlocks,encodedBlocks,size,packetSize);
     }
 
