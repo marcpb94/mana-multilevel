@@ -381,11 +381,12 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
   string encodedFilename = ckptFilename + "_encoded";
   string encodedChksum = ckptFilename + "_encoded_md5chksum";
+  string ckptChksum = ckptFilename + "_md5chksum";
 
-  int fd_m = open(ckptFilename.c_str(), O_RDONLY);
+  int fd_m = open(ckptFilename.c_str(), O_RDWR);
   JASSERT(fd_m != -1);
 
-  int fd_e = open(encodedFilename.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  int fd_e = open(encodedFilename.c_str(), O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
   JASSERT(fd_e != -1);
 
   struct stat sb;
@@ -428,21 +429,16 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   int size = w*packetSize;
 
   if(final_size % (w*packetSize)!=0){
-    printf("final_size: %d not multiple of %d\n",final_size, size);
     final_size = (final_size / size)*size + size;
-    printf("now final size is %d\n",final_size);
   }
 
-  JASSERT(close(fd_m) == 0);
-  if(truncate(ckptFilename.c_str(),final_size) == -1){
+  if(ftruncate(fd_m, final_size) == -1){
     JASSERT(0).Text("Error with truncation on ckpt image.\n");
   }
   
   // Now we will write the original size of the ckpt to the end of the elongated file, so that at restart we can recover 
   // the original ckpt image
 
-  fd_m = open(ckptFilename.c_str(), O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-  JASSERT(fd_m != -1);
   if(lseek(fd_m, -sizeof(off_t), SEEK_END) == -1){
     JASSERT(0).Text("Unable to seek in file.\n");
   }
@@ -484,32 +480,13 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   bitmatrix = jerasure_matrix_to_bitmatrix(topo->groupSize,topo->groupSize,w,matrix);
   schedule = jerasure_smart_bitmatrix_to_schedule(topo->groupSize,topo->groupSize,w,bitmatrix);
   
-  fd_m = open(ckptFilename.c_str(), O_RDONLY);
-  JASSERT(fd_m != -1);
-  
+  lseek(fd_m, 0, SEEK_SET); 
+ 
   char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
   char **dataBlocks;
   char **encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
                          // respective processes
   char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
-  /* unsigned char *udataBlock;
-  unsigned char **udataBlocks;
-  unsigned char **uencodedBlocks;
-  unsigned char *uencodedBlock; */
-
-  /* if(topo->groupRank==0){
-    udataBlock = (unsigned char*)malloc(size);
-    udataBlocks = (unsigned char**)malloc(topo->groupSize*sizeof(unsigned char *));
-    uencodedBlock = (unsigned char*)malloc(size);
-    uencodedBlocks = (unsigned char**)malloc(topo->groupSize*sizeof(unsigned char *));
-    for(int i = 0;i<topo->groupSize;i++){
-      udataBlocks[i] = (unsigned char*)malloc(size);
-      uencodedBlocks[i] = (unsigned char*)malloc(size);
-    }
-  }else{
-    udataBlock = (unsigned char*)malloc(size);
-    uencodedBlock = (unsigned char*)malloc(size);
-  } */
 
   dataBlock = (char*)malloc(size);
   dataBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
@@ -566,41 +543,34 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
     MPI_Barrier(topo->groupComm);
   }
-  close(fd_e);
 
-  if(topo->groupRank==0){
-    free(matrix);
-    free(bitmatrix);
-    free(schedule);
-    free(dataBlock);
-    for(int i = 0;i<topo->groupSize;i++){
-      free(dataBlocks[i]);
-      free(encodedBlocks[i]);
-    }
-    free(dataBlocks);
-    free(encodedBlocks);
-  }else{
-    free(encodedBlock);
+  free(matrix);
+  free(bitmatrix);
+  free(schedule);
+  free(dataBlock);
+  for(int i = 0;i<topo->groupSize;i++){
+    free(dataBlocks[i]);
+    free(encodedBlocks[i]);
   }
+  free(dataBlocks);
+  free(encodedBlocks);
 
   //read checkpoint file as pure data just to compute checksum
-  #pragma region chksum
   MD5_CTX context;
   unsigned char digest[16];
-  Area area;
-  size_t END_OF_CKPT = -1;
   ssize_t bytes_read;
   int chunkSize = MEM_TMP_SIZE;
-  char *addr_tmp = (char *)malloc(MEM_TMP_SIZE);
+  char *addr_tmp = (char *)malloc(chunkSize);
   MD5_Init(&context);
 
-
-  fd_e = open(encodedFilename.c_str(), O_RDONLY);
-  JASSERT(fd_e != -1);
+  lseek(fd_m, 0, SEEK_SET);
+  lseek(fd_e, 0, SEEK_SET);
 
   int fd_e_chksum = open(encodedChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   JASSERT(fd_e_chksum != -1);
 
+  int fd_m_chksum = open(ckptChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
+  JASSERT(fd_m_chksum != -1);
 
   pos = 0;
   while(pos<final_size){
@@ -609,13 +579,42 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     }
     if((bytes_read = Util::readAll(fd_e, addr_tmp, chunkSize)) != (ssize_t)chunkSize){
         if(bytes_read == -1) {
-          printf("Error reading memory region: %s\n", strerror(errno));
+          printf("Error reading encoded checkpoint file: %s\n", strerror(errno));
           fflush(stdout);
         }
         else {
-          printf("Expected memory region of %lu bytes, got only %ld.\n", chunkSize, bytes_read);
+          printf("Expected %d bytes, got %ld instead.\n", chunkSize, bytes_read);
           fflush(stdout);
         }
+        close(fd_m); close(fd_m_chksum);
+        close(fd_e); close (fd_e_chksum);
+        free(addr_tmp);
+        return;
+    }
+    MD5_Update(&context,addr_tmp,chunkSize);
+    pos += chunkSize;
+  }
+  MD5_Final(digest, &context); 
+  Util::writeAll(fd_e_chksum, digest, 16);
+  
+
+  MD5_Init(&context);
+  chunkSize = MEM_TMP_SIZE;
+  pos = 0;
+  while(pos<final_size){
+    if(final_size-pos<chunkSize){
+      chunkSize=final_size-pos;
+    }
+    if((bytes_read = Util::readAll(fd_m, addr_tmp, chunkSize)) != (ssize_t)chunkSize){
+        if(bytes_read == -1) {
+          printf("Error reading checkpoint file: %s\n", strerror(errno));
+          fflush(stdout);
+        }
+        else {
+          printf("Expected %d bytes, got %ld instead.\n", chunkSize, bytes_read);
+          fflush(stdout);
+        }
+        close(fd_m); close(fd_m_chksum);
         close(fd_e); close (fd_e_chksum);
         free(addr_tmp);
         return;
@@ -624,13 +623,16 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     pos += chunkSize;
   }
   MD5_Final(digest, &context);
-  Util::writeAll(fd_e_chksum, digest, 16);
-  
+  Util::writeAll(fd_m_chksum, digest, 16);
+
+  free(addr_tmp);
+  close(fd_m);
   close(fd_e);
   close(fd_e_chksum);
+  close(fd_m_chksum);
 }
 
-void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover, int *erasures, int total_succes_raw, int *survivors){
+void UtilsMPI::performRSDecoding(string filename, string filenameEncoded, Topology* topo, int *to_recover, int *erasures, int total_succes_raw, int *survivors){
   int w = 8;
   int packetSize = 16*1024*sizeof(long);
   int size = w*packetSize;
@@ -648,20 +650,23 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
     matrix = (int *)malloc(topo->groupSize*topo->groupSize*sizeof(int));
     int j;
     int X[topo->groupSize], Y[topo->groupSize];
-    /* for(j=0;j<topo->groupSize;j++){
-      X[j]=j;
+    if((topo->groupSize == 4) && (w==8)){
+      X[0]=1;
+      X[1]=2;
+      X[2]=244;
+      X[3]=247;
+      Y[0]=0;
+      Y[1]=3;
+      Y[2]=245;
+      Y[3]=246;
+    } else{
+      for(j=0;j<topo->groupSize;j++){
+        X[j]=j;
+      }
+      for(j=topo->groupSize;j<2*topo->groupSize;j++){
+        Y[j%topo->groupSize]=j;
+      } 
     }
-    for(j=topo->groupSize;j<2*topo->groupSize;j++){
-      Y[j%topo->groupSize]=j;
-    }  */
-    X[0]=1;
-    X[1]=2;
-    X[2]=244;
-    X[3]=247;
-    Y[0]=0;
-    Y[1]=3;
-    Y[2]=245;
-    Y[3]=246;
     for(int i=0;i<topo->groupSize;i++){
       for(j=0;j<topo->groupSize;j++){
         matrix[i*topo->groupSize+j]=galois_single_divide(1,(X[i]^Y[j]),w);
@@ -722,8 +727,7 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
   
   int num_to_recover = topo->groupSize-total_succes_raw;
 
-  string encodedFilename = filename + "_encoded";
-  string encodedChksum = filename + "_encoded_md5chksum";
+  string encodedChksum = filenameEncoded + "_md5chksum";
   int fd_m,fd_e;
 
   for(int i=0;i<topo->groupSize;i++){
@@ -734,7 +738,7 @@ void UtilsMPI::performRSDecoding(string filename,Topology* topo, int *to_recover
       }
     }else if (survivors[i]>=topo->groupSize){
       if(topo->groupRank==survivors[i]%topo->groupSize){
-        fd_e = open(encodedFilename.c_str(), O_RDONLY);
+        fd_e = open(filenameEncoded.c_str(), O_RDONLY);
         JASSERT(fd_e != -1);
       }
     }
@@ -1136,7 +1140,7 @@ UtilsMPI::isEncodedCkptValid(const char *filename){
   size_t END_OF_CKPT = -1;
   ssize_t bytes_read;
   int chunkSize = MEM_TMP_SIZE;
-  char *addr_tmp = (char *)malloc(MEM_TMP_SIZE);
+  char *addr_tmp = (char *)malloc(chunkSize);
   MD5_Init(&context);
 
 
@@ -1203,14 +1207,15 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
           success = 1;
           if(ckpt_type == CKPT_PARTNER){
             //assist partner if necessary
+            int partnerCkptValid = 0;
+            char *partnerCkpt = NULL;
             MPI_Sendrecv(&success, 1, MPI_INT, topo->right, 0, 
               &partnerSuccess, 1, MPI_INT, topo->left, 0, topo->groupComm, MPI_STATUS_IGNORE);
             if(!partnerSuccess){
               //check if our partner ckpt is valid
               printf("Rank %d | Group rank %d: Partner group rank %d requested assist with partner copy.\n", _rank, topo->groupRank, topo->left);
               fflush(stdout);
-              int partnerCkptValid = 0;
-              char *partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
+              partnerCkpt = findCkptFilename(real_dir, ".dmtcp_partner");
               if(partnerCkpt != NULL){
                 partnerCkptValid = isCkptValid(partnerCkpt);
               }
@@ -1218,17 +1223,24 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
                 printf("Rank %d | Group rank %d: Partner copy ckpt not valid.\n", _rank, topo->groupRank);
                 fflush(stdout);
               }
-              //send help response to partner
-              MPI_Send(&partnerCkptValid, 1, MPI_INT, topo->left, 0 ,topo->groupComm);
-              if(partnerCkptValid){
-                //assist
-                if(!assistPartnerCopy(partnerCkpt, topo)){
-                  printf("Rank %d | Group rank %d: error while assisting group rank %d with partner copy\n", _rank, topo->groupRank, topo->left);
-                  fflush(stdout);
-                }
-              }
-              if(partnerCkpt != NULL) free(partnerCkpt);
             }
+              
+            //send help response to partner
+            int myCkptValid, recoverable;
+            MPI_Sendrecv(&partnerCkptValid, 1, MPI_INT, topo->left, 0,
+                  &myCkptValid, 1, MPI_INT, topo->right, 0, topo->groupComm, MPI_STATUS_IGNORE);
+            //we know our checkpoint is valid
+            myCkptValid = 1;
+            //only enter recovery process if all ranks can recover
+            MPI_Allreduce(&myCkptValid, &recoverable, 1, MPI_INT, MPI_MIN, topo->groupComm);
+            if(recoverable && !partnerSuccess && partnerCkptValid){
+              //assist
+              if(!assistPartnerCopy(partnerCkpt, topo)){
+                printf("Rank %d | Group rank %d: error while assisting group rank %d with partner copy\n", _rank, topo->groupRank, topo->left);
+                fflush(stdout);
+              }
+            }
+            if(partnerCkpt != NULL) free(partnerCkpt);
           }
       }
       else {
@@ -1239,6 +1251,7 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
               &partnerSuccess, 1, MPI_INT, topo->left, 0, topo->groupComm, MPI_STATUS_IGNORE);
           int partnerCkptValid = 0, myCkptValid = 0;
           char *partnerCkpt = NULL;
+          int recoverable = 0;
           if(!partnerSuccess){
             printf("Rank %d | Group rank %d: Partner group rank %d requested assist with partner copy.\n", _rank, topo->groupRank, topo->left);
             fflush(stdout);
@@ -1254,7 +1267,9 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
           //send/recv help response to partner
           MPI_Sendrecv(&partnerCkptValid, 1, MPI_INT, topo->left, 0,
                   &myCkptValid, 1, MPI_INT, topo->right, 0, topo->groupComm, MPI_STATUS_IGNORE);
-          if(myCkptValid && (partnerSuccess || partnerCkptValid)){
+          //only enter recovery process if all ranks can recover
+          MPI_Allreduce(&myCkptValid, &recoverable, 1, MPI_INT, MPI_MIN, topo->groupComm);
+          if(recoverable){
             int ret;
             string fileCkpt;
             if(filename == NULL){
@@ -1292,92 +1307,114 @@ UtilsMPI::checkCkptValid(int ckpt_type, string ckpt_dir, Topology *topo){
       printf("Rank %d | Group rank %d: An exception occurred(%s).\n", _rank, topo->groupRank, e.what());
     }
   }else if(ckpt_type==CKPT_SOLOMON){
-      try{
-        //char *filename = findCkptFilename(real_dir, ".dmtcp");
-        //char *filename_encoded = findCkptFilename(real_dir, ".dmtcp");
-        string filename = findCkptFilename(real_dir, ".dmtcp");
-        string filename_encoded = filename + "_encoded";
-        int encoded_success=0;
-        if(filename.c_str() != NULL){
-          if(isCkptValid(filename.c_str())){
-            success=1;
-          }
-          if(isEncodedCkptValid(filename_encoded.c_str())){
-            encoded_success = 1;
-          }
+      char *fileName, *fileName_encoded;
+      string filename, filename_encoded;
+      int encoded_success=0;
+      fileName = findCkptFilename(real_dir, ".dmtcp");
+      fileName_encoded = findCkptFilename(real_dir, ".dmtcp_encoded");
+      if(fileName!=NULL){
+        filename = fileName;
+      }else{
+        success=0;
+      }
+      if(fileName_encoded!=NULL){
+        filename_encoded = fileName_encoded;
+        if(isEncodedCkptValid(filename_encoded.c_str())){
+          encoded_success = 1;
         }
+      }
+      if(fileName != NULL){
+        if(isEncodedCkptValid(filename.c_str())){
+          success=1;
+        }
+      }
 
-        int success_array[topo->groupSize], encoded_success_array[topo->groupSize];
-        int total_success_raw=0,total_success_encoded=0;
-        MPI_Allgather(&success,1,MPI_INT,success_array,1,MPI_INT,topo->groupComm);
-        MPI_Allgather(&encoded_success,1,MPI_INT,encoded_success_array,1,MPI_INT,topo->groupComm);
+      int success_array[topo->groupSize], encoded_success_array[topo->groupSize];
+      int total_success_raw=0,total_success_encoded=0;
+      MPI_Allgather(&success,1,MPI_INT,success_array,1,MPI_INT,topo->groupComm);
+      MPI_Allgather(&encoded_success,1,MPI_INT,encoded_success_array,1,MPI_INT,topo->groupComm);
 
-        // We have to determine whether we can recover from this number of failures 
-        int i;
-        for(i=0;i<topo->groupSize;i++){
-          total_success_raw += success_array[i];
-          total_success_encoded += encoded_success_array[i];
-        }
-        if(total_success_raw + total_success_encoded < topo->groupSize){
-          return 0;
-        }
+      // We have to determine whether we can recover from this number of failures 
+      int i;
+      for(i=0;i<topo->groupSize;i++){
+        total_success_raw += success_array[i];
+        total_success_encoded += encoded_success_array[i];
+      }
+      if(total_success_raw + total_success_encoded < topo->groupSize){
+        return 0;
+      }
 
-        // If all the raw ckpt file images, we can proceed without any decoding
-        if(total_success_raw == topo->groupSize){
-          return 1;
-        }
-
-        // If we get here, we can recover from the ckpt raw and encoded files. We have to identify which ckpt raw files we need to
-        // recover.
-
-        int to_recover[topo->groupSize-total_success_raw];
-        int erasures[2*topo->groupSize];
-        int survivors[topo->groupSize]; // We just need topo->groupSize correct files to recover all the ckpt images. We select
-                                        // all the unencoded correct ones and, if necesssary, encoded ones.
-        int pos_recover = 0, pos_survivor = 0;
-        for(i=0;i<topo->groupSize;i++){
-          if(success_array[i]==0){
-            to_recover[pos_recover]=i;
-            pos_recover++;
-          }else{
-            survivors[pos_survivor]=i;
-            pos_survivor++;
-          }
-        }
-        pos_recover = 0;
-        for(i=0;i<topo->groupSize;i++){
-          if(success_array[i]==0){
-            erasures[pos_recover] = i;
-            pos_recover++;
-          }
-        }
-        for(i=0;i<topo->groupSize;i++){
-          if(encoded_success_array[i]==0){
-            erasures[pos_recover] = i+topo->groupSize;
-            pos_recover++;
-          }
-        }
-        erasures[pos_recover] = -1;
-
-        // We add the necessary encoded ckpt files. We will denote them by topo->groupSize + i, where i is the process to which they belong.
-        for(i=0;i<topo->groupSize;i++){
-          if(pos_survivor==topo->groupSize){
-            break;
-          }
-          if(encoded_success_array[i]==1){
-            survivors[pos_survivor]=topo->groupSize+i;
-            pos_survivor++;
-          }
-        }
-
-        // At this point we have already selected the survivor files from which we are going to recover. We would now need to apply
-        // RS decoding, via multiplication with the inverse of the adequate matrix. 
-        performRSDecoding(filename,topo,to_recover,erasures,total_success_raw,survivors);
+      // If all the raw ckpt file images, we can proceed without any decoding
+      if(total_success_raw == topo->groupSize){
         return 1;
       }
-      catch (std::exception &e){ //survive unexpected exceptions and assume failure
-        printf("Rank %d | Group rank %d: An exception occurred(%s).\n", _rank, topo->groupRank, e.what());
-      } 
+
+      // If we get here, we can recover from the ckpt raw and encoded files. We have to identify which ckpt raw files we need to
+      // recover.
+
+      int to_recover[topo->groupSize-total_success_raw];
+      int erasures[2*topo->groupSize];
+      int survivors[topo->groupSize]; // We just need topo->groupSize correct files to recover all the ckpt images. We select
+                                      // all the unencoded correct ones and, if necesssary, encoded ones.
+      int pos_recover = 0, pos_survivor = 0;
+      for(i=0;i<topo->groupSize;i++){
+        if(success_array[i]==0){
+          to_recover[pos_recover]=i;
+          pos_recover++;
+        }else{
+          survivors[pos_survivor]=i;
+          pos_survivor++;
+        }
+      }
+      pos_recover = 0;
+      for(i=0;i<topo->groupSize;i++){
+        if(success_array[i]==0){
+          erasures[pos_recover] = i;
+          pos_recover++;
+        }
+      }
+      for(i=0;i<topo->groupSize;i++){
+        if(encoded_success_array[i]==0){
+          erasures[pos_recover] = i+topo->groupSize;
+          pos_recover++;
+        }
+      }
+      erasures[pos_recover] = -1;
+
+      // We add the necessary encoded ckpt files. We will denote them by topo->groupSize + i, where i is the process to which they belong.
+      for(i=0;i<topo->groupSize;i++){
+        if(pos_survivor==topo->groupSize){
+          break;
+        }
+        if(encoded_success_array[i]==1){
+          survivors[pos_survivor]=topo->groupSize+i;
+          pos_survivor++;
+        }
+      }
+
+      if (topo->groupRank == 0) {
+      for(i = 0; i < pos_recover; i++){
+        printf("%d", to_recover[i]);
+      }
+      printf("\n");
+      for(i = 0; i < pos_survivor; i++){
+        printf("%d", survivors[i]);
+      }
+      printf("\n");
+      }
+
+      // At this point we have already selected the survivor files from which we are going to recover. We would now need to apply
+      // RS decoding, via multiplication with the inverse of the adequate matrix.
+
+      if(fileName == NULL){
+        filename = real_dir + "ckpt_recovered.dmtcp";
+      }
+      if(fileName_encoded==NULL){
+        filename_encoded = real_dir + "ckpt_encoded_recovered.dmtcp_encoded";
+      }
+
+      performRSDecoding(filename,filename_encoded, topo,to_recover,erasures,total_success_raw,survivors);
+      return 1;
   }
 
   printf("Success of rank %d: %d\n", _rank, success);

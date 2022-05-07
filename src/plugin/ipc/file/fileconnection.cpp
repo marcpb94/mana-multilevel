@@ -132,6 +132,9 @@ FileConnection::drain()
 
   JASSERT(_fds.size() > 0);
 
+  printf("FileConnection::drain -> fd: %d, path: %s\n",_fds[0], _path.c_str());
+  fflush(stdout);
+
   _ckpted_file = false;
   _allow_overwrite = false;
 
