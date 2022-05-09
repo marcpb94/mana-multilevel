@@ -484,17 +484,21 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
  
   char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
   char **dataBlocks;
+  char *dataBlocks_region; //have all data blocks stored contiguously in memory for easier handling
   char **encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
                          // respective processes
   char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
+  char *encodedBlocks_region; //have all encoded blocks stored contiguously in memory for easier handling
 
   dataBlock = (char*)malloc(size);
   dataBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+  dataBlocks_region = (char *)malloc(topo->groupSize*size);
   encodedBlock = (char*)malloc(size);
   encodedBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
+  encodedBlocks_region = (char *)malloc(topo->groupSize*size);
   for(int i = 0;i<topo->groupSize;i++){
-    dataBlocks[i] = (char*)malloc(size);
-    encodedBlocks[i] = (char*)malloc(size);
+    dataBlocks[i] = &dataBlocks_region[size*i];
+    encodedBlocks[i] = &encodedBlocks_region[size*i];
   }
 
   int toProcess[topo->groupSize];
@@ -508,17 +512,9 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
                             size : final_size-pos;
       pos += toProcess[i];
       if (toProcess[i] == 0) continue;
-      if (topo->groupRank == i){
-        Util::readAll(fd_m,dataBlocks[i],size);
-        for(k=0;k<topo->groupSize;k++){
-          if(k == i) continue;
-          MPI_Recv(dataBlocks[k],size,MPI_CHAR,k,0,topo->groupComm,MPI_STATUS_IGNORE);
-        }
-      }
-      else {
-        Util::readAll(fd_m,dataBlock,size);
-        MPI_Send(dataBlock,size,MPI_CHAR,i,0,topo->groupComm);
-      }
+      Util::readAll(fd_m, dataBlock, toProcess[i]);
+      MPI_Gather(dataBlock, toProcess[i], MPI_CHAR,
+        dataBlocks_region, toProcess[i], MPI_CHAR, i, topo->groupComm);
     }
 
     // Now we do the encoding, if we have data
@@ -528,17 +524,9 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
     for (i = 0; i < topo->groupSize; i++){
       if (toProcess[i] == 0) break;
-      if (topo->groupRank == i) {
-        Util::writeAll(fd_e,encodedBlocks[i],size);
-        for(k=0;k<topo->groupSize;k++){
-          if (k == i)  continue;
-          MPI_Send(encodedBlocks[k],size,MPI_CHAR,k,0,topo->groupComm);
-        }
-      }
-      else {
-        MPI_Recv(encodedBlock,size,MPI_CHAR,i,0,topo->groupComm,MPI_STATUS_IGNORE);
-        Util::writeAll(fd_e,encodedBlock,size);
-      }
+      MPI_Scatter(encodedBlocks_region, toProcess[i], MPI_CHAR,
+        encodedBlock, toProcess[i], MPI_CHAR, i, topo->groupComm);
+      Util::writeAll(fd_e,encodedBlock,toProcess[i]);
     }
 
     MPI_Barrier(topo->groupComm);
@@ -548,12 +536,10 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   free(bitmatrix);
   free(schedule);
   free(dataBlock);
-  for(int i = 0;i<topo->groupSize;i++){
-    free(dataBlocks[i]);
-    free(encodedBlocks[i]);
-  }
   free(dataBlocks);
   free(encodedBlocks);
+  free(dataBlocks_region);
+  free(encodedBlocks_region);
 
   //read checkpoint file as pure data just to compute checksum
   MD5_CTX context;
