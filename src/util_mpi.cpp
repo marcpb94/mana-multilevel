@@ -483,22 +483,31 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   lseek(fd_m, 0, SEEK_SET); 
  
   char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
-  char **dataBlocks;
+  char ***dataBlocks;
   char *dataBlocks_region; //have all data blocks stored contiguously in memory for easier handling
-  char **encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
+  char ***encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
                          // respective processes
   char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
   char *encodedBlocks_region; //have all encoded blocks stored contiguously in memory for easier handling
 
-  dataBlock = (char*)malloc(size);
-  dataBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
-  dataBlocks_region = (char *)malloc(topo->groupSize*size);
-  encodedBlock = (char*)malloc(size);
-  encodedBlocks = (char**)malloc(topo->groupSize*sizeof(char *));
-  encodedBlocks_region = (char *)malloc(topo->groupSize*size);
-  for(int i = 0;i<topo->groupSize;i++){
-    dataBlocks[i] = &dataBlocks_region[size*i];
-    encodedBlocks[i] = &encodedBlocks_region[size*i];
+
+  int num_process = 4; //number of "size" elements to process per rank
+  int batch_size = size*num_process;
+
+  dataBlock = (char*)malloc(batch_size);
+  dataBlocks = (char***)malloc(num_process*sizeof(char **));
+  dataBlocks_region = (char *)malloc(topo->groupSize*batch_size);
+  encodedBlock = (char*)malloc(batch_size);
+  encodedBlocks = (char***)malloc(num_process*sizeof(char **));
+  encodedBlocks_region = (char *)malloc(topo->groupSize*batch_size);
+  for (int i = 0; i < num_process; i++){
+    dataBlocks[i] = (char **)malloc(topo->groupSize*sizeof(char *));
+    encodedBlocks[i] = (char **)malloc(topo->groupSize*sizeof(char *));
+    for (int j = 0; j < topo->groupSize; j++){
+      //properly assign data blocks
+      dataBlocks[i][j] = &dataBlocks_region[i*size+j*batch_size];
+      encodedBlocks[i][j] = &encodedBlocks_region[i*size+j*batch_size];
+    }
   }
 
   MD5_CTX context_og, context_enc;
@@ -507,51 +516,61 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   MD5_Init(&context_enc);
 
   int toProcess[topo->groupSize];
-  int k;
+  int k, num;
   int pos = 0;
   double time_pre = 0, time_comp = 0, time_post = 0;
   double wtime;
   //wtime = MPI_Wtime();
   while(pos<final_size){
 
-    //wtime = MPI_Wtime();
+    wtime = MPI_Wtime();
     //distribute blocks across all ranks from group    
     for(i = 0; i < topo->groupSize; i++){
-      toProcess[i] = (pos+size <= final_size) ? 
-                            size : final_size-pos;
+      toProcess[i] = (pos+batch_size <= final_size) ? 
+                            batch_size : final_size-pos;
       pos += toProcess[i];
       if (toProcess[i] == 0) continue;
       Util::readAll(fd_m, dataBlock, toProcess[i]);
-      MPI_Gather(dataBlock, toProcess[i], MPI_CHAR,
-        dataBlocks_region, toProcess[i], MPI_CHAR, i, topo->groupComm);
-      MD5_Update(&context_og,dataBlock,size);
+      //communication needs to always be with batch_size elements,
+      //otherwise the contiguous memory region assignments
+      //are incorrect
+      MPI_Gather(dataBlock, batch_size, MPI_CHAR,
+        dataBlocks_region, batch_size, MPI_CHAR, i, topo->groupComm);
+      num = toProcess[i]/size;
+      for (k = 0; k < num; k++) {
+        MD5_Update(&context_og,&dataBlock[size*k],size);
+      }
     }
 
-    //time_pre += (MPI_Wtime() - wtime);
+    time_pre += (MPI_Wtime() - wtime);
 
-    //wtime = MPI_Wtime();
+    wtime = MPI_Wtime();
     // Now we do the encoding, if we have data
-    if (toProcess[topo->groupRank] > 0) {
-      jerasure_schedule_encode(topo->groupSize,topo->groupSize,w,schedule,dataBlocks,encodedBlocks,size,packetSize);
+    num = toProcess[topo->groupRank]/size;
+    for (k = 0; k < num; k++) {
+      jerasure_schedule_encode(topo->groupSize,topo->groupSize,w,schedule,dataBlocks[k],encodedBlocks[k],size,packetSize);
     }
-    //time_comp += (MPI_Wtime() - wtime);
+    time_comp += (MPI_Wtime() - wtime);
 
-    //wtime = MPI_Wtime();
+    wtime = MPI_Wtime();
 
     for (i = 0; i < topo->groupSize; i++){
       if (toProcess[i] == 0) break;
-      MPI_Scatter(encodedBlocks_region, toProcess[i], MPI_CHAR,
-        encodedBlock, toProcess[i], MPI_CHAR, i, topo->groupComm);
+      MPI_Scatter(encodedBlocks_region, batch_size, MPI_CHAR,
+        encodedBlock, batch_size, MPI_CHAR, i, topo->groupComm);
       Util::writeAll(fd_e,encodedBlock,toProcess[i]);
-      MD5_Update(&context_enc,encodedBlock,size);
+      num = toProcess[i]/size;
+      for (k = 0; k < num; k++) {
+        MD5_Update(&context_enc,&encodedBlock[size*k],size);
+      }
     }
-    //time_post += (MPI_Wtime() - wtime);
+    time_post += (MPI_Wtime() - wtime);
     MPI_Barrier(topo->groupComm);
   }
 
   //printf("encoding time: %.3f\n", MPI_Wtime()-wtime);
-  //printf("pre:%3.f, comp:%3.f, post:%3.f\n", time_pre, time_comp, time_post);
-  //fflush(stdout);
+  printf("pre:%.3f, comp:%.3f, post:%.3f\n", time_pre, time_comp, time_post);
+  fflush(stdout);
 
   free(matrix);
   free(bitmatrix);
