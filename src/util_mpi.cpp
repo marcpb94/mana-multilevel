@@ -501,11 +501,20 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     encodedBlocks[i] = &encodedBlocks_region[size*i];
   }
 
+  MD5_CTX context_og, context_enc;
+  unsigned char digest_og[16], digest_enc[16];
+  MD5_Init(&context_og);
+  MD5_Init(&context_enc);
+
   int toProcess[topo->groupSize];
   int k;
   int pos = 0;
+  double time_pre = 0, time_comp = 0, time_post = 0;
+  double wtime;
+  //wtime = MPI_Wtime();
   while(pos<final_size){
 
+    //wtime = MPI_Wtime();
     //distribute blocks across all ranks from group    
     for(i = 0; i < topo->groupSize; i++){
       toProcess[i] = (pos+size <= final_size) ? 
@@ -515,22 +524,34 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
       Util::readAll(fd_m, dataBlock, toProcess[i]);
       MPI_Gather(dataBlock, toProcess[i], MPI_CHAR,
         dataBlocks_region, toProcess[i], MPI_CHAR, i, topo->groupComm);
+      MD5_Update(&context_og,dataBlock,size);
     }
 
+    //time_pre += (MPI_Wtime() - wtime);
+
+    //wtime = MPI_Wtime();
     // Now we do the encoding, if we have data
     if (toProcess[topo->groupRank] > 0) {
       jerasure_schedule_encode(topo->groupSize,topo->groupSize,w,schedule,dataBlocks,encodedBlocks,size,packetSize);
     }
+    //time_comp += (MPI_Wtime() - wtime);
+
+    //wtime = MPI_Wtime();
 
     for (i = 0; i < topo->groupSize; i++){
       if (toProcess[i] == 0) break;
       MPI_Scatter(encodedBlocks_region, toProcess[i], MPI_CHAR,
         encodedBlock, toProcess[i], MPI_CHAR, i, topo->groupComm);
       Util::writeAll(fd_e,encodedBlock,toProcess[i]);
+      MD5_Update(&context_enc,encodedBlock,size);
     }
-
+    //time_post += (MPI_Wtime() - wtime);
     MPI_Barrier(topo->groupComm);
   }
+
+  //printf("encoding time: %.3f\n", MPI_Wtime()-wtime);
+  //printf("pre:%3.f, comp:%3.f, post:%3.f\n", time_pre, time_comp, time_post);
+  //fflush(stdout);
 
   free(matrix);
   free(bitmatrix);
@@ -541,77 +562,19 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   free(dataBlocks_region);
   free(encodedBlocks_region);
 
-  //read checkpoint file as pure data just to compute checksum
-  MD5_CTX context;
-  unsigned char digest[16];
-  ssize_t bytes_read;
-  int chunkSize = MEM_TMP_SIZE;
-  char *addr_tmp = (char *)malloc(chunkSize);
-  MD5_Init(&context);
-
-  lseek(fd_m, 0, SEEK_SET);
-  lseek(fd_e, 0, SEEK_SET);
-
   int fd_e_chksum = open(encodedChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   JASSERT(fd_e_chksum != -1);
 
   int fd_m_chksum = open(ckptChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   JASSERT(fd_m_chksum != -1);
 
-  pos = 0;
-  while(pos<final_size){
-    if(final_size-pos<chunkSize){
-      chunkSize=final_size-pos;
-    }
-    if((bytes_read = Util::readAll(fd_e, addr_tmp, chunkSize)) != (ssize_t)chunkSize){
-        if(bytes_read == -1) {
-          printf("Error reading encoded checkpoint file: %s\n", strerror(errno));
-          fflush(stdout);
-        }
-        else {
-          printf("Expected %d bytes, got %ld instead.\n", chunkSize, bytes_read);
-          fflush(stdout);
-        }
-        close(fd_m); close(fd_m_chksum);
-        close(fd_e); close (fd_e_chksum);
-        free(addr_tmp);
-        return;
-    }
-    MD5_Update(&context,addr_tmp,chunkSize);
-    pos += chunkSize;
-  }
-  MD5_Final(digest, &context); 
-  Util::writeAll(fd_e_chksum, digest, 16);
+  MD5_Final(digest_enc, &context_enc); 
+  Util::writeAll(fd_e_chksum, digest_enc, 16);
   
 
-  MD5_Init(&context);
-  chunkSize = MEM_TMP_SIZE;
-  pos = 0;
-  while(pos<final_size){
-    if(final_size-pos<chunkSize){
-      chunkSize=final_size-pos;
-    }
-    if((bytes_read = Util::readAll(fd_m, addr_tmp, chunkSize)) != (ssize_t)chunkSize){
-        if(bytes_read == -1) {
-          printf("Error reading checkpoint file: %s\n", strerror(errno));
-          fflush(stdout);
-        }
-        else {
-          printf("Expected %d bytes, got %ld instead.\n", chunkSize, bytes_read);
-          fflush(stdout);
-        }
-        close(fd_m); close(fd_m_chksum);
-        close(fd_e); close (fd_e_chksum);
-        free(addr_tmp);
-        return;
-    }
-    MD5_Update(&context,addr_tmp,chunkSize);
-    pos += chunkSize;
-  }
-  MD5_Final(digest, &context);
-  Util::writeAll(fd_m_chksum, digest, 16);
+  MD5_Final(digest_og, &context_og);
+  Util::writeAll(fd_m_chksum, digest_og, 16);
 
-  free(addr_tmp);
   close(fd_m);
   close(fd_e);
   close(fd_e_chksum);
