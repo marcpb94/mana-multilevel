@@ -19,6 +19,7 @@
 #define TEST_MODE_OPTION "test_mode"
 #define NODE_SIZE_OPTION "node_size"
 #define GROUP_SIZE_OPTION "group_size"
+#define MAX_ENC_THREADS_OPTION "max_encode_threads"
 
 using namespace dmtcp;
 
@@ -35,6 +36,7 @@ public:
   uint32_t testMode;
   int32_t nodeSize;
   int32_t groupSize;
+  int maxEncodeThreads;
 
   ConfigInfo();
   void readConfigFromFile(std::string filename);
@@ -52,10 +54,11 @@ public:
   int sectionID; // Identifies the group of nodes to which a process belongs.
   int groupRank; // The rank of the process in the group communicator
   int right, left; // Identify the right and left processes in the group communicator.
+  int testMode; //whether the topology is faked or is running on a real cluster
 
   MPI_Comm groupComm;
 
-  Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int num_proc, int node_size, int group_size, 
+  Topology(int test_node, int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int num_proc, int node_size, int group_size, 
           int section_ID, int group_rank, int righ_t, int lef_t, MPI_Comm group_comm);
 
 };

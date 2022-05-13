@@ -883,6 +883,16 @@ ConfigInfo::readConfigFromFile(std::string filename){
         }
         JASSERT(groupSize > 0)(groupSize).Text("Invalid group size.");
       }
+      else if (option == MAX_ENC_THREADS_OPTION){
+        try {
+          maxEncodeThreads = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing maximum number of encoding threads.");
+        }
+        JASSERT((maxEncodeThreads >= 0))(maxEncodeThreads)
+          .Text("Invalid maximum number of encoding threads.");
+      }
       else {
         JASSERT(false)(option).Text("Invalid config option.");
       } 
@@ -960,12 +970,12 @@ RestartInfo::readRestartInfo(){
   }
 }
 
-Topology::Topology(int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int num_proc, int node_size, int group_size, 
+Topology::Topology(int test_mode, int num_nodes, char *name_list, char *host_name, int *node_map, int *partner_map, int num_proc, int node_size, int group_size, 
           int section_ID, int group_rank, int righ_t, int lef_t, MPI_Comm group_comm){
   numNodes = num_nodes; nameList = name_list; hostname = host_name; 
   nodeMap = node_map; partnerMap = partner_map; numProc=num_proc;
   nodeSize = node_size; groupSize = group_size; sectionID = section_ID; groupRank = group_rank;
   right = righ_t; left=lef_t;
-  groupComm = group_comm;
+  groupComm = group_comm; testMode = test_mode;
 }
 

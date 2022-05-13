@@ -17,7 +17,7 @@ UtilsMPI::UtilsMPI(){
   MPI_Comm_rank(MPI_COMM_WORLD, &_rank);
   MPI_Comm_size(MPI_COMM_WORLD, &_size);
 }
-UtilsMPI
+UtilsMPI&
 UtilsMPI::instance(){
   if (_inst == NULL){
     _inst = new UtilsMPI();
@@ -44,6 +44,7 @@ UtilsMPI::getSystemTopology(ConfigInfo *cfg, Topology **topo)
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   hostname = getHostName(cfg);
+  _maxThreads = cfg->maxEncodeThreads;
   num_nodes = 0;
   //allocate enough memory for all hostnames
   char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
@@ -172,7 +173,7 @@ UtilsMPI::getSystemTopology(ConfigInfo *cfg, Topology **topo)
   }
 
 
-  *topo = new Topology(num_nodes, nameList, hostname, nodeMap, partnerMap, mpi_size, node_size, group_size, section_ID, group_rank, right,
+  *topo = new Topology(cfg->testMode, num_nodes, nameList, hostname, nodeMap, partnerMap, mpi_size, node_size, group_size, section_ID, group_rank, right,
                       left, group_comm);
 
   free(allNodes);
@@ -369,6 +370,88 @@ UtilsMPI::performPartnerCopy(string ckptFilename, Topology *topo){
   JASSERT(close(fd_m_chksum) == 0);
 }
 
+void waitForNumber(int *counter, int target, pthread_mutex_t *m, pthread_cond_t *c) {
+  pthread_mutex_lock(m);
+
+  while (*counter != target) {
+    pthread_cond_wait(c, m);
+  }
+
+  pthread_mutex_unlock(m);
+}
+
+void waitAndSet(int *counter, int target, int set, pthread_mutex_t *m, pthread_cond_t *c) {
+  pthread_mutex_lock(m);
+
+  while (*counter != target) {
+    pthread_cond_wait(c, m);
+  }
+  *counter = set;
+
+  pthread_mutex_unlock(m);
+}
+
+void setNumber(int *counter, int target, pthread_mutex_t *m, pthread_cond_t *c) {
+  pthread_mutex_lock(m);
+
+  *counter = target;
+  pthread_cond_signal(c);
+
+  pthread_mutex_unlock(m);
+}
+
+void *threadEncodeRoutine(void *data){
+  ThreadInfo *info = (ThreadInfo *)data;
+
+  waitAndSet(&info->next, 1, 0, &info->mutex[THREAD_NEXT], &info->cond[THREAD_NEXT]);
+
+  while (!info->done){
+    if(info->blockSize > 0){
+      //perform encoding
+      jerasure_schedule_encode(info->groupSize, info->groupSize, info->w, info->schedule,
+        info->dataBlocks, info->encodedBlocks, info->blockSize, info->packetSize);
+    }
+
+    //inform that work is done
+    setNumber(&info->finished, 1, &info->mutex[THREAD_FINISH], &info->cond[THREAD_FINISH]);
+
+    //wait until next block is available
+    waitAndSet(&info->next, 1, 0, &info->mutex[THREAD_NEXT], &info->cond[THREAD_NEXT]);
+
+  }
+
+  pthread_exit(0);
+}
+
+int
+UtilsMPI::getAvailableThreads(Topology *topo){
+  int max_threads = _maxThreads;
+  int aff_procs, true_size, avail;
+  cpu_set_t cs;
+  CPU_ZERO(&cs);
+  sched_getaffinity(0, sizeof(cs), &cs);
+  aff_procs = CPU_COUNT(&cs);
+
+  printf("max:%d, affinity:%d\n", max_threads, aff_procs);
+  fflush(stdout);
+
+  //avoid oversubscribing the machine if running on test mode
+  true_size = (topo->testMode) ? _size : topo->nodeSize;
+
+  if(max_threads > 0)
+    avail = MIN(max_threads, aff_procs/true_size);
+  else 
+    avail = aff_procs/true_size;
+
+  if(avail < 1){
+    printf("Warning: number of affined threads is smaller than the node size, the node might be oversubscribed.\n");
+    fflush(stdout);
+  }
+
+  return MAX(avail, 1);
+}
+
+
 void 
 UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   int w = 8;
@@ -484,75 +567,167 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
  
   char *dataBlock; // All processes will need to store temporarily a piece of raw ckpt image.
   char ***dataBlocks;
+  char ***dataBlocksNext;
   char *dataBlocks_region; //have all data blocks stored contiguously in memory for easier handling
+  char *dataBlocks_region_next;
   char ***encodedBlocks; // Group rank 0 is going to temporarily store all the pieces of encoded files before sending them to 
                          // respective processes
   char *encodedBlock; // Every node is going to keep receiving from group rank 0 pieces of the final encoded files
   char *encodedBlocks_region; //have all encoded blocks stored contiguously in memory for easier handling
 
 
-  int num_process = 4; //number of "size" elements to process per rank
+  int nthreads = getAvailableThreads(topo);
+  printf("Selected %d threads for encoding.\n", nthreads);
+  fflush(stdout);
+
+  int num_process = nthreads; //number of "size" elements to process per rank
   int batch_size = size*num_process;
 
   dataBlock = (char*)malloc(batch_size);
   dataBlocks = (char***)malloc(num_process*sizeof(char **));
+  dataBlocksNext = (char***)malloc(nthreads*sizeof(char **));
   dataBlocks_region = (char *)malloc(topo->groupSize*batch_size);
+  dataBlocks_region_next = (char *)malloc(topo->groupSize*batch_size);
   encodedBlock = (char*)malloc(batch_size);
   encodedBlocks = (char***)malloc(num_process*sizeof(char **));
   encodedBlocks_region = (char *)malloc(topo->groupSize*batch_size);
   for (int i = 0; i < num_process; i++){
     dataBlocks[i] = (char **)malloc(topo->groupSize*sizeof(char *));
+    dataBlocksNext[i] = (char **)malloc(topo->groupSize*sizeof(char *));
     encodedBlocks[i] = (char **)malloc(topo->groupSize*sizeof(char *));
     for (int j = 0; j < topo->groupSize; j++){
       //properly assign data blocks
       dataBlocks[i][j] = &dataBlocks_region[i*size+j*batch_size];
+      dataBlocksNext[i][j] = &dataBlocks_region_next[i*size+j*batch_size];
       encodedBlocks[i][j] = &encodedBlocks_region[i*size+j*batch_size];
     }
   }
+
+  pthread_t *threadIds = NULL;
+  ThreadInfo *info = NULL;
+
+  threadIds = (pthread_t *)malloc(sizeof(pthread_t) * (nthreads));
+  info = (ThreadInfo *)malloc(sizeof(ThreadInfo) * (nthreads)); 
+  for (i = 0; i < nthreads; i++){
+    info[i].blockSize = 0;
+    info[i].packetSize = packetSize;
+    info[i].groupSize = topo->groupSize;
+    info[i].w = w;
+    info[i].schedule = schedule;
+    info[i].dataBlocks = NULL;
+    info[i].encodedBlocks = NULL;
+    info[i].done = 0;
+    info[i].finished = 0;
+    info[i].next = 0;
+    info[i].mutex[THREAD_NEXT] = PTHREAD_MUTEX_INITIALIZER;
+    info[i].cond[THREAD_NEXT] = PTHREAD_COND_INITIALIZER;
+    info[i].mutex[THREAD_FINISH] = PTHREAD_MUTEX_INITIALIZER;
+    info[i].cond[THREAD_FINISH] = PTHREAD_COND_INITIALIZER;
+
+    pthread_create(&threadIds[i], NULL, &threadEncodeRoutine, &info[i]);
+  }
+
+  //initialize galois structure before threads,
+  //otherwise we encounter a race condition
+  JASSERT(galois_init_default_field(32) == 0)
+    .Text("galois_init(32) failed.");
 
   MD5_CTX context_og, context_enc;
   unsigned char digest_og[16], digest_enc[16];
   MD5_Init(&context_og);
   MD5_Init(&context_enc);
 
-  int toProcess[topo->groupSize];
+  int *toProcess = (int *) malloc(sizeof(int)*topo->groupSize);
+  int *toProcessNext = (int *)malloc(sizeof(int)*topo->groupSize);
   int k, num;
-  int pos = 0;
+  int pos = 0, posNext = 0;
+  int rounds = 0;
+  int fin = 0;
   double time_pre = 0, time_comp = 0, time_post = 0;
   double wtime;
-  //wtime = MPI_Wtime();
   while(pos<final_size){
-
-    wtime = MPI_Wtime();
-    //distribute blocks across all ranks from group    
-    for(i = 0; i < topo->groupSize; i++){
-      toProcess[i] = (pos+batch_size <= final_size) ? 
+    rounds++;
+  
+    //first iteration needs to retrieve the current block
+    if (pos == 0) {
+      //distribute blocks across all ranks from group    
+      for(i = 0; i < topo->groupSize; i++){
+        toProcess[i] = (pos+batch_size <= final_size) ? 
                             batch_size : final_size-pos;
-      pos += toProcess[i];
-      if (toProcess[i] == 0) continue;
-      Util::readAll(fd_m, dataBlock, toProcess[i]);
-      //communication needs to always be with batch_size elements,
-      //otherwise the contiguous memory region assignments
-      //are incorrect
-      MPI_Gather(dataBlock, batch_size, MPI_CHAR,
-        dataBlocks_region, batch_size, MPI_CHAR, i, topo->groupComm);
-      num = toProcess[i]/size;
-      for (k = 0; k < num; k++) {
-        MD5_Update(&context_og,&dataBlock[size*k],size);
+        pos += toProcess[i];
+        if (pos == final_size) fin = 1;
+        if (toProcess[i] == 0) continue;
+        Util::readAll(fd_m, dataBlock, toProcess[i]);
+        //communication needs to always be with batch_size elements,
+        //otherwise the contiguous memory region assignments
+        //are incorrect
+        MPI_Gather(dataBlock, batch_size, MPI_CHAR,
+          dataBlocks_region, batch_size, MPI_CHAR, i, topo->groupComm);
+        num = toProcess[i]/size;
+        for (k = 0; k < num; k++) {
+          MD5_Update(&context_og,&dataBlock[size*k],size);
+        }
       }
     }
-
-    time_pre += (MPI_Wtime() - wtime);
-
-    wtime = MPI_Wtime();
-    // Now we do the encoding, if we have data
-    num = toProcess[topo->groupRank]/size;
-    for (k = 0; k < num; k++) {
-      jerasure_schedule_encode(topo->groupSize,topo->groupSize,w,schedule,dataBlocks[k],encodedBlocks[k],size,packetSize);
+    else {
+      //pointers swap
+      char ***tmp;
+      int *tmp2;
+      char *tmp3;
+      tmp = dataBlocks;
+      dataBlocks = dataBlocksNext;
+      dataBlocksNext = tmp;
+      tmp2 = toProcess;
+      toProcess = toProcessNext;
+      toProcessNext = tmp2;
+      tmp3 = dataBlocks_region;
+      dataBlocks_region = dataBlocks_region_next;
+      dataBlocks_region_next = tmp3;
+      //update pos
+      pos = posNext;
+      if (pos == final_size) fin = 1;
     }
-    time_comp += (MPI_Wtime() - wtime);
 
-    wtime = MPI_Wtime();
+    int processed = 0;
+    for(i = 0; i < nthreads; i++){
+      //amount to process must be multiple of size,
+      //so each thread gets either size or zero
+      info[i].blockSize = (toProcess[topo->groupRank] >= processed + size) ?
+                               size : 0;
+      info[i].dataBlocks = dataBlocks[i];
+      info[i].encodedBlocks = encodedBlocks[i];
+      processed += info[i].blockSize;
+      setNumber(&info[i].next, 1, &info[i].mutex[THREAD_NEXT], &info[i].cond[THREAD_NEXT]);
+    }
+
+
+    //perform gather for next iteration
+    //while other threads are encoding
+    //unless it's the last one
+    if(!fin){
+      posNext = pos;
+      for(i = 0; i < topo->groupSize; i++){
+        toProcessNext[i] = (posNext+batch_size <= final_size) ?
+                            batch_size : final_size-posNext;
+        if (toProcessNext[i] == 0) continue;
+        posNext += toProcessNext[i];
+        Util::readAll(fd_m, dataBlock, toProcessNext[i]);
+        //communication needs to always be with batch_size elements,
+        //otherwise the contiguous memory region assignments
+        //are incorrect
+        MPI_Gather(dataBlock, batch_size, MPI_CHAR,
+          dataBlocks_region_next, batch_size, MPI_CHAR, i, topo->groupComm);
+        num = toProcessNext[i]/size;
+        for (k = 0; k < num; k++) {
+          MD5_Update(&context_og,&dataBlock[size*k],size);
+        }
+      }
+    }
+ 
+    //wait for other threads to finish encoding
+    for(i = 0; i < nthreads; i++){
+      waitAndSet(&info[i].finished, 1, 0, &info[i].mutex[THREAD_FINISH], &info[i].cond[THREAD_FINISH]);
+    }
 
     for (i = 0; i < topo->groupSize; i++){
       if (toProcess[i] == 0) break;
@@ -564,22 +739,48 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
         MD5_Update(&context_enc,&encodedBlock[size*k],size);
       }
     }
-    time_post += (MPI_Wtime() - wtime);
     MPI_Barrier(topo->groupComm);
   }
 
-  //printf("encoding time: %.3f\n", MPI_Wtime()-wtime);
-  printf("pre:%.3f, comp:%.3f, post:%.3f\n", time_pre, time_comp, time_post);
+  //inform other threads that no more processing is needed
+   for(i = 0; i < nthreads; i++){
+    info[i].done = 1;
+    setNumber(&info[i].next, 1, &info[i].mutex[THREAD_NEXT], &info[i].cond[THREAD_NEXT]);
+  }
+
+  //wait for other threads to finalize
+  for(i = 0; i < nthreads; i++){
+    pthread_join(threadIds[i], NULL);
+    pthread_mutex_destroy(&info[i].mutex[THREAD_NEXT]);
+    pthread_mutex_destroy(&info[i].mutex[THREAD_FINISH]);
+    pthread_cond_destroy(&info[i].cond[THREAD_NEXT]);
+    pthread_cond_destroy(&info[i].cond[THREAD_FINISH]);
+  }
+
+
+  printf("Number of rounds: %d\n", rounds);
   fflush(stdout);
 
   free(matrix);
   free(bitmatrix);
   free(schedule);
   free(dataBlock);
+  free(encodedBlock);
+  for (int i = 0; i < num_process; i++){
+    free(dataBlocks[i]);
+    free(dataBlocksNext[i]);
+    free(encodedBlocks[i]);
+  }
   free(dataBlocks);
+  free(dataBlocksNext);
   free(encodedBlocks);
   free(dataBlocks_region);
+  free(dataBlocks_region_next);
   free(encodedBlocks_region);
+  free(toProcess);
+  free(toProcessNext);
+  free(info);
+  free(threadIds);
 
   int fd_e_chksum = open(encodedChksum.c_str(), O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   JASSERT(fd_e_chksum != -1);

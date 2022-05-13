@@ -20,9 +20,29 @@
 #include "dirent.h"
 #include "uniquepid.h"
 #include "mtcp/mtcp_header.h"
+#include <sys/sysinfo.h>
+#include <sched.h>
 
+#define THREAD_FINISH 0
+#define THREAD_NEXT 1
 
 using namespace dmtcp;
+
+struct ThreadInfo {
+  int blockSize;
+  int packetSize;
+  int groupSize;
+  int w;
+  int **schedule;
+  char **dataBlocks;
+  char **encodedBlocks;
+  int done;
+  int finished;
+  int next;
+  pthread_mutex_t mutex[2];
+  pthread_cond_t cond[2];
+};
+
 
 struct UtilsMPI {
 
@@ -30,6 +50,7 @@ private:
 
   int _rank = -1;
   int _size = -1;
+  int _maxThreads = 0;
 
 public:
 
@@ -38,6 +59,7 @@ public:
   int getSize() const { return _size; }
   char* getHostName(ConfigInfo *cfg);
   void getSystemTopology(ConfigInfo *cfg, Topology **topo);
+  int getAvailableThreads(Topology *topo);
   void performPartnerCopy(string ckptFilename, Topology *topo);
   void performRSEncoding(string ckptFilename, Topology *topo);
   void performRSDecoding(string filename, string filenameEncoded, Topology* topo, int *to_recover, int *erasures, int total_success_raw, int *survivors);
@@ -52,7 +74,7 @@ public:
   int assistPartnerCopy(string ckptFilename, Topology *topo);
   int recoverFromPartnerCopy(string ckptFilename, Topology *topo);
   string recoverFromCrash(ConfigInfo *cfg);
-  static UtilsMPI instance();
+  static UtilsMPI& instance();
 };
 
 #endif //ifndef CONFIG_MPI_H
