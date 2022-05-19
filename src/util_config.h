@@ -19,7 +19,8 @@
 #define TEST_MODE_OPTION "test_mode"
 #define NODE_SIZE_OPTION "node_size"
 #define GROUP_SIZE_OPTION "group_size"
-#define MAX_ENC_THREADS_OPTION "max_encode_threads"
+#define ENC_MAX_THREADS_OPTION "encode_max_threads"
+#define ENC_BLOCKS_PER_THREAD_OPTION "encode_blocks_per_thread"
 
 using namespace dmtcp;
 
@@ -36,7 +37,8 @@ public:
   uint32_t testMode;
   int32_t nodeSize;
   int32_t groupSize;
-  int maxEncodeThreads;
+  int encodeMaxThreads;
+  int encodeBlocksPerThread;
 
   ConfigInfo();
   void readConfigFromFile(std::string filename);

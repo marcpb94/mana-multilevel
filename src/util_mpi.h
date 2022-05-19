@@ -34,8 +34,9 @@ struct ThreadInfo {
   int groupSize;
   int w;
   int **schedule;
-  char **dataBlocks;
-  char **encodedBlocks;
+  int blocks;
+  char ***dataBlocks;
+  char ***encodedBlocks;
   int done;
   int finished;
   int next;
@@ -50,7 +51,8 @@ private:
 
   int _rank = -1;
   int _size = -1;
-  int _maxThreads = 0;
+  int _encodeMaxThreads = 0;
+  int _encodeBlocksPerThread = 1;
 
 public:
 

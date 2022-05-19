@@ -44,7 +44,8 @@ UtilsMPI::getSystemTopology(ConfigInfo *cfg, Topology **topo)
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
   hostname = getHostName(cfg);
-  _maxThreads = cfg->maxEncodeThreads;
+  _encodeMaxThreads = cfg->encodeMaxThreads;
+  _encodeBlocksPerThread = cfg->encodeBlocksPerThread;
   num_nodes = 0;
   //allocate enough memory for all hostnames
   char *allNodes = (char *)malloc(HOSTNAME_MAXSIZE * mpi_size);
@@ -402,14 +403,15 @@ void setNumber(int *counter, int target, pthread_mutex_t *m, pthread_cond_t *c) 
 
 void *threadEncodeRoutine(void *data){
   ThreadInfo *info = (ThreadInfo *)data;
+  int i;
 
   waitAndSet(&info->next, 1, 0, &info->mutex[THREAD_NEXT], &info->cond[THREAD_NEXT]);
 
   while (!info->done){
-    if(info->blockSize > 0){
+    for(i = 0; i < info->blocks; i++){
       //perform encoding
       jerasure_schedule_encode(info->groupSize, info->groupSize, info->w, info->schedule,
-        info->dataBlocks, info->encodedBlocks, info->blockSize, info->packetSize);
+        info->dataBlocks[i], info->encodedBlocks[i], info->blockSize, info->packetSize);
     }
 
     //inform that work is done
@@ -425,7 +427,7 @@ void *threadEncodeRoutine(void *data){
 
 int
 UtilsMPI::getAvailableThreads(Topology *topo){
-  int max_threads = _maxThreads;
+  int max_threads = _encodeMaxThreads;
   int aff_procs, true_size, avail;
   cpu_set_t cs;
   CPU_ZERO(&cs);
@@ -577,15 +579,16 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
 
   int nthreads = getAvailableThreads(topo);
-  printf("Selected %d threads for encoding.\n", nthreads);
+  int blocks_per_thread = _encodeBlocksPerThread;
+  printf("Selected %d encoding threads, %d blocks per thread\n", nthreads, blocks_per_thread);
   fflush(stdout);
 
-  int num_process = nthreads; //number of "size" elements to process per rank
+  int num_process = nthreads*blocks_per_thread; //number of "size" elements to process per rank
   int batch_size = size*num_process;
 
   dataBlock = (char*)malloc(batch_size);
   dataBlocks = (char***)malloc(num_process*sizeof(char **));
-  dataBlocksNext = (char***)malloc(nthreads*sizeof(char **));
+  dataBlocksNext = (char***)malloc(num_process*sizeof(char **));
   dataBlocks_region = (char *)malloc(topo->groupSize*batch_size);
   dataBlocks_region_next = (char *)malloc(topo->groupSize*batch_size);
   encodedBlock = (char*)malloc(batch_size);
@@ -617,13 +620,14 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
   fflush(stdout);
 
   for (i = 0; i < nthreads; i++){
-    info[i].blockSize = 0;
+    info[i].blockSize = size;
     info[i].packetSize = packetSize;
     info[i].groupSize = topo->groupSize;
     info[i].w = w;
     info[i].schedule = schedule;
-    info[i].dataBlocks = NULL;
-    info[i].encodedBlocks = NULL;
+    info[i].blocks = 0;
+    info[i].dataBlocks = (char ***)malloc(blocks_per_thread*sizeof(char **));
+    info[i].encodedBlocks = (char ***)malloc(blocks_per_thread*sizeof(char **));
     info[i].done = 0;
     info[i].finished = 0;
     info[i].next = 0;
@@ -698,13 +702,15 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
     int processed = 0;
     for(i = 0; i < nthreads; i++){
-      //amount to process must be multiple of size,
-      //so each thread gets either size or zero
-      info[i].blockSize = (toProcess[topo->groupRank] >= processed + size) ?
-                               size : 0;
-      info[i].dataBlocks = dataBlocks[i];
-      info[i].encodedBlocks = encodedBlocks[i];
-      processed += info[i].blockSize;
+      info[i].blocks = 0;
+      for (j = 0; j < blocks_per_thread; j++){
+         if (toProcess[topo->groupRank] < processed + size) break;
+
+         info[i].dataBlocks[j] = dataBlocks[i*blocks_per_thread+j];
+         info[i].encodedBlocks[j] = encodedBlocks[i*blocks_per_thread+j];
+         processed += size;
+         info[i].blocks++;
+      }
       setNumber(&info[i].next, 1, &info[i].mutex[THREAD_NEXT], &info[i].cond[THREAD_NEXT]);
     }
 
@@ -763,6 +769,8 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
     pthread_mutex_destroy(&info[i].mutex[THREAD_FINISH]);
     pthread_cond_destroy(&info[i].cond[THREAD_NEXT]);
     pthread_cond_destroy(&info[i].cond[THREAD_FINISH]);
+    free(info[i].dataBlocks);
+    free(info[i].encodedBlocks);
   }
 
 

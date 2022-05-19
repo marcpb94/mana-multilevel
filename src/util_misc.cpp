@@ -797,6 +797,8 @@ ConfigInfo::ConfigInfo() {
   testMode = 0;
   nodeSize = 1;
   groupSize = 4;
+  encodeMaxThreads = 0;
+  encodeBlocksPerThread = 1;
 }
 
 void
@@ -883,15 +885,25 @@ ConfigInfo::readConfigFromFile(std::string filename){
         }
         JASSERT(groupSize > 0)(groupSize).Text("Invalid group size.");
       }
-      else if (option == MAX_ENC_THREADS_OPTION){
+      else if (option == ENC_MAX_THREADS_OPTION){
         try {
-          maxEncodeThreads = std::stoi(value);
+          encodeMaxThreads = std::stoi(value);
         }
         catch (std::exception& e){
           JASSERT(false).Text("Error parsing maximum number of encoding threads.");
         }
-        JASSERT((maxEncodeThreads >= 0))(maxEncodeThreads)
+        JASSERT((encodeMaxThreads >= 0))(encodeMaxThreads)
           .Text("Invalid maximum number of encoding threads.");
+      }
+      else if (option == ENC_BLOCKS_PER_THREAD_OPTION){
+        try {
+          encodeBlocksPerThread = std::stoi(value);
+        }
+        catch (std::exception& e){
+          JASSERT(false).Text("Error parsing the number of blocks per encoding thread.");
+        }
+        JASSERT((encodeBlocksPerThread > 0))(encodeBlocksPerThread)
+          .Text("Invalid number of blocks per encoding thread.");
       }
       else {
         JASSERT(false)(option).Text("Invalid config option.");
