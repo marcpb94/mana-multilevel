@@ -608,6 +608,14 @@ UtilsMPI::performRSEncoding(string ckptFilename, Topology* topo){
 
   threadIds = (pthread_t *)malloc(sizeof(pthread_t) * (nthreads));
   info = (ThreadInfo *)malloc(sizeof(ThreadInfo) * (nthreads)); 
+  
+
+  int mem_used = batch_size*2 + num_process*sizeof(char **)*3 +
+                 topo->groupSize*batch_size*3 + topo->groupSize*sizeof(char *)*3 +
+                 + sizeof(pthread_t) * (nthreads) + sizeof(ThreadInfo) * (nthreads);
+  printf("Allocating %d MB for encoding procedure.\n", mem_used/(1024*1024));
+  fflush(stdout);
+
   for (i = 0; i < nthreads; i++){
     info[i].blockSize = 0;
     info[i].packetSize = packetSize;
