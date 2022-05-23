@@ -289,6 +289,7 @@ clean: tidy
 	   fi; \
 	 fi; \
 	 rm -rf $$DMTCP_TMPDIR
+	 rm -rf bin/lh_proxy
 
 # Obsolete, remove in 2.5.0.
 clean-64: clean
