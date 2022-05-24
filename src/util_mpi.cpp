@@ -5,6 +5,28 @@
 #include <math.h>
 #include <algorithm>
 
+/*
+int pointers_valid = 0;
+
+#define malloc(nbytes_) aux_malloc(nbytes_)
+#define free(pointer_);                                          \
+              if (UtilsMPI::instance().getRank() == 0)           \
+              printf("num allocations: %d\n", --pointers_valid); \
+              fflush(stdout);                                    \
+              free(pointer_);
+
+char*
+aux_malloc(int nbytes){
+  char *res;
+
+  res = (char *)calloc(nbytes, sizeof(char));
+  if (UtilsMPI::instance().getRank() == 0)
+  printf("num allocations: %d\n", ++pointers_valid);
+  fflush(stdout);
+
+  return res;
+}
+*/
 
 static UtilsMPI *_inst = NULL;
 
@@ -177,6 +199,7 @@ UtilsMPI::getSystemTopology(ConfigInfo *cfg, Topology **topo)
   *topo = new Topology(cfg->testMode, num_nodes, nameList, hostname, nodeMap, partnerMap, mpi_size, node_size, group_size, section_ID, group_rank, right,
                       left, group_comm);
 
+  free(inverseNodeMap);
   free(allNodes);
 }
 
