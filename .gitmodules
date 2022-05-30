@@ -1,4 +1,4 @@
-[submodule "dmtcp"]
-	branch = feature/mana
+[submodule "dmtcp_multilevel"]
+	branch = multilevel_stable
 	path = dmtcp
-	url = https://github.com/dmtcp/dmtcp
+	url = git@github.com:marcpb94/dmtcp_multilevel.git
