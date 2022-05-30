@@ -1,16 +1,18 @@
 #!/bin/sh
 
 # These optional autoconf variables will be configured
-#     via contrib/mpi-proxy-split/Makefie_config.in
+#     via contrib/mpi-proxy-split/Makefile_config.in
 
 # Do not add spaces to the next two lines.
 # If MPI will be used on a different computer than where you configure,
 #   then maybe replace this with the result of 'ip addr' on the compute nodes.
 MPI_ETHERNET_INTERFACE=\
-`ip addr |grep -B1 link/ether | head -1 |sed -e 's%[^ ]*: \([^ ]*\): .*%\1%'`
+`PATH=$PATH:/usr/sbin ip addr |grep -B1 link/ether | head -1 |sed -e 's%[^ ]*: \([^ ]*\): .*%\1%'`
 
 # Note: modify this path according to your environment.
-MPI_INSTALL_DIR=/usr/local
+if [[ -z "${MPI__INSTALL_DIR}" ]]; then
+  MPI_INSTALL_DIR=/usr/local
+fi
 
 # This works on our local test computer (CentOS 7).
 # But also read the note right after this command.
@@ -22,6 +24,7 @@ MPI_INSTALL_DIR=/usr/local
              MPI_LIB=$MPI_INSTALL_DIR/lib \
              MPICC='${MPI_BIN}/mpicc' \
              MPICXX='${MPI_BIN}/mpic++' \
+             MPIFORTRAN='${MPI_BIN}/mpifort' \
              MPIRUN='${MPI_BIN}/mpirun -iface '${MPI_ETHERNET_INTERFACE} \
              MPI_LD_FLAG=-lmpich \
              MPI_CFLAGS= \

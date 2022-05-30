@@ -1,0 +1,4 @@
+[submodule "dmtcp"]
+	branch = feature/mana
+	path = dmtcp
+	url = https://github.com/dmtcp/dmtcp
