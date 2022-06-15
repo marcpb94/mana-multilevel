@@ -118,6 +118,31 @@ fi
 
 export LD_LIBRARY_PATH=/usr/local/lib/
 
+
+# We divide the restart process in two phases:
+
+# Phase 1
+# Select a valid checkpoint state, performing
+# recovery procedures if necessary. Afterwards,
+# we write the selected ckpt folder in a file
+# and exit. This is done to avoid altering the
+# MPI state of the lower half, as any comm
+# between processes involves MPI calls.
+$dir/dmtcp_restart  --mpi --join-coordinator \
+                    --coord-host $submissionHost --coord-port $submissionPort \
+                    --recover $options
+
+res=$?
+if [ "$res" != 0 ]; then
+  exit 1
+fi
+
+# Phase 2
+# If a valid checkpoint state is found, execute
+# dmtcp_restart again without --recovery option.
+# The program will read the file to get the valid
+# checkpoint folder and load everything back
+# into memory, without using any MPI calls.
 $dir/dmtcp_restart  --mpi --join-coordinator \
                     --coord-host $submissionHost --coord-port $submissionPort \
                     $options
