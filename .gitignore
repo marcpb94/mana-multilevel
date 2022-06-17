@@ -64,5 +64,4 @@ GRTAGS
 GTAGS
 .restartinfo
 .recovery
-mana.conf
 mpi-proxy-split/mpi-wrappers/mana_p2p_update_logs
