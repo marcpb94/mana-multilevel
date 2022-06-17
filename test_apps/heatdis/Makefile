@@ -4,7 +4,7 @@ heatdis-mpi: heatdis.c
 	mpicc -o heatdis.mpi.exe heatdis.c -lm
 
 heatdis-mana: heatdis.c
-	gcc -o heatdis.mana.exe heatdis.c -I../../include/ -L../../lib/dmtcp -lm -lmpidummy
+	gcc -o heatdis.mana.exe heatdis.c -I../../include/ -L../../lib/dmtcp -lm -lmpistub
 
 
 exec:	heatdis-mana
