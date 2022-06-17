@@ -1,0 +1,21 @@
+
+For all applications there exists in some directory a Makefile with the tasks 'exec', 'restart' and 'clean'. The first executes the application coupled to MANA-Multilevel, the second restarts the application from a previous checkpoint and the third empties the checkpoint folders and possibly other files. For example, HPCG generates a 'hpcg*.txt' and 'HPCG*.txt' every execution that are also deleted when cleaning.
+
+
+### HPCG ###
+
+1) 'cd' to the build directory 'My_MPI', run the configure command and 'make'. This will create the executable 
+Commands:
+	cd My_MPI
+	../configure My_MPI
+	make
+Note: Make.My_MPI is located in hpcg/setup, the configuration can be modified and other Make files are available in hpcg/setup.
+
+2)If the previous step is succesful, the 'bin' directory in 'My_MPI' now contains 'hpcg.dat' and xhpcg. 
+3)The Makefile with 'exec', 'restart' and 'clean' is located in hpcg/My_MPI/bin
+
+
+### LULESH ###
+
+1)'make' in the LULESH directory. This generates the executable.
+3)'cd' to 'execution'. The Makefile with 'exec', 'restart', and 'clean' is located here.
