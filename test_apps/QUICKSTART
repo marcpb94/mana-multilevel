@@ -24,10 +24,10 @@ Note: Make.My_MPI is located in hpcg/setup, the configuration can be modified an
 
 ### LAMMPS ###
 
-1) 'cd' to the LAMMPS directory
+1) 'cd' to the lammps directory
 2) 'cd' to the src directory
-3) 'make' the LAMMPS executable by running
+3) 'make' the lammps executable by running
 	make mpi
-4) The Makefile with 'exec', 'restart' and 'clean' is located in LAMMPS/
+4) The Makefile with 'exec', 'restart' and 'clean' is located in lammps/
 
-Note: We use LAMMPS/examples/melt/in.melt as the testing simulation.
+Note: We use lammps/examples/melt/in.melt as the testing simulation.
