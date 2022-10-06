@@ -96,6 +96,7 @@ namespace dmtcp_mpi
     TYPE_INT_ARRAY,
     TYPE_VOID_PTR,
     TYPE_VOID_CONST_PTR,
+    TYPE_LONG,
     TYPE_MPI_USER_FNC,
   };
 
@@ -201,6 +202,7 @@ namespace dmtcp_mpi
     void *c;
     void const *d;
     MPI_User_function *e;
+    long f;
 
     if (typeid(data) == typeid(a)) {
       return FncArg(&data, sizeof(data), TYPE_INT);
@@ -215,6 +217,9 @@ namespace dmtcp_mpi
       return FncArg(&data, sizeof(data), TYPE_VOID_CONST_PTR);
     }
     if (typeid(data) == typeid(e)) {
+      return FncArg(&data, sizeof(data), TYPE_MPI_USER_FNC);
+    }
+    if (typeid(data) == typeid(f)) {
       return FncArg(&data, sizeof(data), TYPE_MPI_USER_FNC);
     }
     JASSERT(false).Text("Unkown type for FncArg");
@@ -309,7 +314,7 @@ namespace dmtcp_mpi
       bool getComplete()
       {
         return _complete;
-      }	
+      }
 
       // Returns a pointer to the wrapper function corresponding to this MPI
       // record object
@@ -718,5 +723,7 @@ namespace dmtcp_mpi
 // Restores the MPI state by recreating the communicator, groups, types, etc.
 // post restart
 extern void restoreMpiLogState();
-
+#ifdef SINGLE_CART_REORDER
+extern void setCartesianCommunicator(void *getCartesianCommunicatorFptr);
+#endif
 #endif // ifndef MPI_RECORD_REPLAY_H
