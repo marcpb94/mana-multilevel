@@ -266,8 +266,8 @@ e. Download and install mpich
 2. Installing the MANA directory and compiling MANA
 In this tutorial, we'll install MANA in the home directory.
   $ cd $HOME
-  $ git clone git@github.com:Marc-Miranda/mana_multilevel.git
-  $ cd mana
+  $ git clone git@github.com:marcpb94/mana-multilevel.git
+  $ cd mana-multilevel
   $ git submodule update --init
   $ ./configure-mana
   $ make -j mana
