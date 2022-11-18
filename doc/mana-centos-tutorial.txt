@@ -272,6 +272,15 @@ In this tutorial, we'll install MANA in the home directory.
   $ ./configure-mana
   $ make -j mana
 
+Currently, MANA has a minor configuration issue when compiling for the first time.
+As such, the make command might end with the following error:
+
+  $ cp: cannot stat ‘lh_proxy_da’: No such file or directory
+  $  make[3]: *** [install] Error 1
+
+When this happens, performing the same make command a second time lets the
+compilation finish.
+
 Here, we note that the locations of some libraries and commands differ based on
 what operating system you're using, as well as where these packages are
 installed. In configure-mana, we have:
@@ -308,21 +317,21 @@ from within the root directory of MANA.
   $ source ~/.bashrc
 
 If you've been following this tutorial precisely, then {MANA_ROOT} should be
-/home/{YOUR USERNAME}/mana.
+/home/{YOUR USERNAME}/mana-multilevel.
 
 1. Launching an MPI application
 
 As an example, we can start by launching a simple application. We will use
 the application ckpt-stress inside {MANA_ROOT}/test_apps/ckpt-stress, but
-there are also other applications located inside mpi-plugin-proxy/test/.
+there are also other applications located inside mpi-proxy-split/test/.
 
   $ cd {MANA_ROOT}/test_apps/ckpt-stress
   $ make exec
 
-For more information in the exact commands used to run the application, we
+For more information on the exact commands used to run the application, we
 can look at the Makefile. The configuration file is used to determine the
 location of the local and global checkpoints, the intervals of each checkpoint
-level and other information about the topology of the the execution. After a few
+level and other information about the topology of the execution. After a few
 minutes, we will see that the application will start to perform checkpoints of
 different levels. We can change their frequency in the configuration file named
 mana.conf in the same directory.
@@ -336,9 +345,9 @@ To restart the application, we do the following:
 
   $ make restart
 
-As before, we can look at the Makefile for more information of the commands
+As before, we can look at the Makefile for more information on the commands
 used. The restart process will select the latest checkpoint level performed
-that passes the integrity check correctly.
+that passes the checksum integrity check successfully.
 
 Depending on whether there is another instance of mana_coordinator running, we
 may need to either close all other instances or launch a coordinator with a
